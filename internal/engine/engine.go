@@ -15,22 +15,23 @@ import (
 //go:embed predefined.js
 var predefinedJS string
 
-// FetchFunc is the host implementation backing the synchronous fetch() global.
-// It mirrors goja.FunctionCall based host functions so callers in internal/network
-// can build one without importing this package.
-type FetchFunc func(call goja.FunctionCall) goja.Value
+// FetchBuilder constructs the fetch() host function for a runtime. It is a
+// callback (rather than a plain FetchFunc) because implementations such as
+// network.FetchFactory need the *goja.Runtime to build return values.
+type FetchBuilder func(vm *goja.Runtime) func(call goja.FunctionCall) goja.Value
 
 // New creates a goja runtime with println/get/safeStringify/safeParse (loaded
 // from the embedded predefined.js, ported verbatim from miaospeed) plus the
-// given fetch implementation and a minimal CommonJS module.exports shim.
-func New(fetch FetchFunc) (*goja.Runtime, error) {
+// fetch implementation from buildFetch and a minimal CommonJS module.exports
+// shim.
+func New(buildFetch FetchBuilder) (*goja.Runtime, error) {
 	vm := goja.New()
 	new(require.Registry).Enable(vm)
 	console.Enable(vm)
 	vm.SetMaxCallStackSize(1024)
 
 	vm.Set("print", printFunc())
-	vm.Set("fetch", fetch)
+	vm.Set("fetch", buildFetch(vm))
 
 	if _, err := vm.RunString(predefinedJS); err != nil {
 		return nil, fmt.Errorf("load predefined script: %w", err)

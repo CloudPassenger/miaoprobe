@@ -1,7 +1,15 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+
+	"github.com/CloudPassenger/miaoprobe/internal/cli"
+)
 
 func main() {
-	fmt.Println("miaoprobe: media unlock / network probe tool driven by embedded JS scripts")
+	if err := cli.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
 }

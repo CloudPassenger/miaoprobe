@@ -7,8 +7,10 @@ import (
 	"github.com/dop251/goja"
 )
 
-func nullFetch(call goja.FunctionCall) goja.Value {
-	return goja.Null()
+func nullFetch(vm *goja.Runtime) func(goja.FunctionCall) goja.Value {
+	return func(call goja.FunctionCall) goja.Value {
+		return goja.Null()
+	}
 }
 
 func TestRunScriptModuleExports(t *testing.T) {
