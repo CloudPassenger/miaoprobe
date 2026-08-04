@@ -10,5 +10,6 @@ func Execute() error {
 		SilenceUsage: true,
 	}
 	root.AddCommand(newCheckCommand())
+	root.AddCommand(newServeCommand())
 	return root.Execute()
 }
