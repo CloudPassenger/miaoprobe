@@ -161,7 +161,7 @@ tests:
               instance: host:9765
             exp_annotations:
               summary: "miaoprobe poll cycle is approaching the polling interval"
-              description: "A full poll cycle took 4m 40s, close to or beyond the configured --interval. Ticks will be dropped and the effective polling rate will degrade. Raise --concurrency, or raise --interval."
+              description: "A full poll cycle took 4m 40s, close to or beyond the configured --probe.interval. Ticks will be dropped and the effective polling rate will degrade. Raise --probe.concurrency, or raise --probe.interval."
 
   # The exporter being unreachable must be critical: every status is stale.
   - interval: 1m

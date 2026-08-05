@@ -662,7 +662,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Wall time of a full polling cycle across all scripts. If this approaches the configured --interval, ticks get dropped and the effective polling rate silently degrades: raise --concurrency or --interval. Set the dashed threshold to your --interval.",
+      "description": "Wall time of a full polling cycle across all scripts. If this approaches the configured --probe.interval, ticks get dropped and the effective polling rate silently degrades: raise --probe.concurrency or --probe.interval. Set the dashed threshold to your --probe.interval.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },

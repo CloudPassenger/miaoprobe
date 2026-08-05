@@ -40,7 +40,7 @@ releases](#cross-compilation-and-releases).
 
 # narrow down first, then copy IDs/categories/regions/tags into --filter
 # for check/serve
-./miaoprobe list --scripts /path/to/miaospeed-scripts/dist --filter "category:media;region:hk" --format json
+./miaoprobe list --scripts /path/to/miaospeed-scripts/dist --filter "category:media;region:hk" --output.format json
 ```
 
 `list` prints each script's `id`, `name`, `description`, `category`, `regions`,
@@ -56,7 +56,7 @@ deployment's `check`/`serve` is configured.
 |-------------|---------|-----------------------------------------------------------|
 | `--scripts` | -       | a `.js` file or a directory with `index.json`; defaults to this build's embedded `miaospeed-scripts`, if any (see [Script source](#script-source)) |
 | `--filter`  | ``      | script selection, see below (ignores config file/environment unless set here) |
-| `--format`  | `table` | `table` or `json`                                           |
+| `--output.format`  | `table` | `table` or `json`                                           |
 
 ## Selecting scripts: `--filter`
 
@@ -110,10 +110,10 @@ go build -o miaoprobe ./cmd/miaoprobe
 # only media scripts in hk/us, through a SOCKS5 proxy, JSON output
 ./miaoprobe check \
   --scripts /path/to/miaospeed-scripts/dist \
-  --proxy socks5://127.0.0.1:1080 \
+  --probe.proxy socks5://127.0.0.1:1080 \
   --filter "category:media;region:hk,us" \
-  --timeout 30s \
-  --format json
+  --probe.timeout 30s \
+  --output.format json
 
 # a couple of specific scripts by ID (see `miaoprobe list`)
 ./miaoprobe check --scripts /path/to/miaospeed-scripts/dist --filter "id:netflix,disneyplus"
@@ -127,12 +127,12 @@ go build -o miaoprobe ./cmd/miaoprobe
 | Flag        | Default | Description                                              |
 |-------------|---------|-----------------------------------------------------------|
 | `--scripts` | -       | a `.js` file or a directory with `index.json`; defaults to this build's embedded `miaospeed-scripts`, if any (see [Script source](#script-source)) |
-| `--proxy`   | ``      | `http://host:port` / `https://host:port` / `socks5://host:port`; empty = direct |
+| `--probe.proxy`   | ``      | `http://host:port` / `https://host:port` / `socks5://host:port`; empty = direct |
 | `--filter`  | ``      | script selection, see [Selecting scripts](#selecting-scripts---filter) |
-| `--timeout` | `30s`   | per-script execution timeout                               |
-| `--format`  | `table` | `table` (colorized box-drawing table) or `json`             |
+| `--probe.timeout` | `30s`   | per-script execution timeout                               |
+| `--output.format`  | `table` | `table` (colorized box-drawing table) or `json`             |
 
-`--timeout` is a hard deadline: it cancels a script's in-flight `fetch()` as
+`--probe.timeout` is a hard deadline: it cancels a script's in-flight `fetch()` as
 well as interrupting its JavaScript. A script's own `fetch()` `timeout`
 parameter is additionally clamped to 30s per attempt (with `retry` capped at
 10, as before), so no single script can stall a run indefinitely.
@@ -142,9 +142,9 @@ parameter is additionally clamped to 30s per attempt (with `retry` capped at
 ```sh
 ./miaoprobe serve \
   --scripts /path/to/miaospeed-scripts/dist \
-  --proxy http://127.0.0.1:8080 \
-  --interval 5m \
-  --listen :9765
+  --probe.proxy http://127.0.0.1:8080 \
+  --probe.interval 5m \
+  --metrics.listen :9765
 ```
 
 `serve` flags:
@@ -152,16 +152,16 @@ parameter is additionally clamped to 30s per attempt (with `retry` capped at
 | Flag         | Default | Description                                    |
 |--------------|---------|-------------------------------------------------|
 | `--scripts`  | -       | a directory with `index.json`; defaults to this build's embedded `miaospeed-scripts`, if any (see [Script source](#script-source)) |
-| `--proxy`    | ``      | same as `check`                                 |
+| `--probe.proxy`    | ``      | same as `check`                                 |
 | `--filter`   | ``      | same as `check`                                 |
-| `--interval` | `5m`    | polling interval (duration format, e.g. `30s`, `5m`) |
-| `--timeout`  | `30s`   | per-script execution timeout                    |
-| `--concurrency` | `8`  | how many scripts to probe in parallel           |
-| `--listen`   | `:9765` | address `/metrics` is served on                 |
+| `--probe.interval` | `5m`    | polling interval (duration format, e.g. `30s`, `5m`) |
+| `--probe.timeout`  | `30s`   | per-script execution timeout                    |
+| `--probe.concurrency` | `8`  | how many scripts to probe in parallel           |
+| `--metrics.listen`   | `:9765` | address `/metrics` is served on                 |
 
-Scripts are probed in parallel (`--concurrency`), so a cycle takes roughly
+Scripts are probed in parallel (`--probe.concurrency`), so a cycle takes roughly
 `ceil(scripts / concurrency)` slow probes rather than the sum of all of
-them. If a cycle still outlives `--interval`, ticks are dropped and the
+them. If a cycle still outlives `--probe.interval`, ticks are dropped and the
 effective polling rate silently drops — `serve` logs a warning when this
 happens, and exposes cycle wall time as `miaoprobe_poll_duration_seconds`.
 
@@ -172,13 +172,13 @@ external OTel Collector needed. OTLP push flags:
 
 | Flag              | Default          | Description                                    |
 |-------------------|------------------|-------------------------------------------------|
-| `--otel-endpoint`  | ``               | OTLP endpoint to push to; empty disables push (falls back to `OTEL_EXPORTER_OTLP_*` env vars) |
-| `--otel-protocol`  | `http/protobuf`  | `http/protobuf` or `grpc`                       |
-| `--otel-headers`   | ``               | comma-separated `key=value` headers sent with every export, e.g. auth |
-| `--otel-insecure`  | `false`          | disable TLS (local collectors only)             |
-| `--otel-interval`  | `1m`             | how often buffered metrics are pushed           |
+| `--otel.endpoint`  | ``               | OTLP endpoint to push to; empty disables push (falls back to `OTEL_EXPORTER_OTLP_*` env vars) |
+| `--otel.protocol`  | `http/protobuf`  | `http/protobuf` or `grpc`                       |
+| `--otel.headers`   | ``               | comma-separated `key=value` headers sent with every export, e.g. auth |
+| `--otel.insecure`  | `false`          | disable TLS (local collectors only)             |
+| `--otel.interval`  | `1m`             | how often buffered metrics are pushed           |
 
-For `http/protobuf`, if `--otel-endpoint` has no `/v1/metrics` suffix it is
+For `http/protobuf`, if `--otel.endpoint` has no `/v1/metrics` suffix it is
 appended automatically, so a gateway base URL works as-is.
 
 ### Pushing to Grafana Cloud
@@ -190,9 +190,9 @@ required. Find the endpoint and generate an API token under your stack's
 ```sh
 ./miaoprobe serve \
   --scripts /path/to/miaospeed-scripts/dist \
-  --otel-endpoint https://otlp-gateway-prod-xx.grafana.net/otlp \
-  --otel-headers "Authorization=Basic $(echo -n '<instance-id>:<api-token>' | base64 -w0)" \
-  --otel-interval 1m
+  --otel.endpoint https://otlp-gateway-prod-xx.grafana.net/otlp \
+  --otel.headers "Authorization=Basic $(echo -n '<instance-id>:<api-token>' | base64 -w0)" \
+  --otel.interval 1m
 ```
 
 `/metrics` keeps serving locally at the same time, so a local Prometheus
@@ -273,7 +273,7 @@ promtool check rules dashboards/miaoprobe-alerts.yaml
 promtool test rules dashboards/miaoprobe-alerts-test.yaml
 ```
 
-The thresholds assume the default `--interval 5m` (staleness fires at three
+The thresholds assume the default `--probe.interval 5m` (staleness fires at three
 missed cycles). If you poll on a different interval, scale them to match.
 
 To build panels of your own, remember that metadata lives on
@@ -295,24 +295,24 @@ similar to MediaUnlockTest's output.
 
 ## Logging
 
-`--log-level` and `--log-format` are global flags accepted by both `check`
-and `serve`. Logs always go to stderr, so `check --format json` output on
+`--log.level` and `--log.format` are global flags accepted by both `check`
+and `serve`. Logs always go to stderr, so `check --output.format json` output on
 stdout stays parseable even with verbose logging enabled.
 
 | Flag           | Default | Values                                                        |
 |----------------|---------|-----------------------------------------------------------------|
-| `--log-level`  | `info`  | `trace`, `debug`, `info`, `warn`, `error`                        |
-| `--log-format` | `rich`  | `rich` (colored console via [tint][tint], colors auto-disabled when not a TTY), `text` (plain `slog` text), `json` |
+| `--log.level`  | `info`  | `trace`, `debug`, `info`, `warn`, `error`                        |
+| `--log.format` | `rich`  | `rich` (colored console via [tint][tint], colors auto-disabled when not a TTY), `text` (plain `slog` text), `json` |
 
 ```sh
 # see every fetch() call and full response detail
 ./miaoprobe check --scripts /path/to/miaospeed-scripts/dist/global/netflix.js \
-  --log-level trace --log-format json
+  --log.level trace --log.format json
 ```
 
 - `debug` logs each outgoing `fetch()` call and retry attempt (method, url, retry/timeout config).
 - `trace` additionally logs response detail (status code, body size, redirect count) for successful attempts.
-- A script's own `println()` output is routed through the same logger (`level=info`, `source=script`), so it also honors `--log-format`.
+- A script's own `println()` output is routed through the same logger (`level=info`, `source=script`), so it also honors `--log.format`.
 - Every log line for one script run carries a `script=<id>` attribute for correlation.
 
 [tint]: https://github.com/lmittmann/tint
@@ -320,22 +320,38 @@ stdout stays parseable even with verbose logging enabled.
 ## Configuration
 
 Every flag on `list`, `check`, and `serve` (including the global
-`--log-level`/`--log-format`) can also be set via a YAML config file or
+`--log.level`/`--log.format`) can also be set via a YAML config file or
 environment variables, for `systemd`-native and container/cloud-native
 deployments where passing everything on the command line is awkward.
 Precedence, highest to lowest:
 
 1. command-line flag
-2. environment variable (`MP_<FLAG_NAME>`, e.g. `--otel-endpoint` ->
-   `MP_OTEL_ENDPOINT`)
+2. environment variable (the flag name upper-cased with `.` → `_`, prefixed
+   `MP_`; e.g. `--otel.endpoint` -> `MP_OTEL_ENDPOINT`)
 3. YAML config file
 4. flag default
 
-`--filter` is the one exception to the flat "flag name = config key" rule
-described below: see [Selecting scripts](#selecting-scripts---filter) for
-its own nested YAML shape and per-key `MP_FILTER_*` variables. It still
-follows the same file → environment → flag precedence, just resolved as one
-unit rather than field-by-field — and on `list` specifically, the config
+Flag names are grouped by concern, and that grouping *is* the config
+structure — one name for all three sources:
+
+| Group | Flags | Scope |
+|-------|-------|-------|
+| `log.*` | `level`, `format` | all commands |
+| `output.*` | `format` | `list`, `check` |
+| `probe.*` | `proxy`, `timeout`, `interval`, `concurrency` | `check`, `serve` (the last two are serve-only) |
+| `metrics.*` | `listen` | `serve` |
+| `otel.*` | `endpoint`, `protocol`, `headers`, `insecure`, `interval` | `serve` |
+| *(ungrouped)* | `config`, `scripts`, `filter` | all commands |
+
+A command ignores keys for flags it doesn't have, so one file can configure
+all three subcommands.
+
+`--filter` is the one flag whose shape differs per source: it is a compact
+`"key:v1,v2;key2:v3"` string on the command line, but a nested section in
+YAML and one variable per field in the environment (`MP_FILTER_CATEGORY`,
+...). See [Selecting scripts](#selecting-scripts---filter). It follows the
+same file → environment → flag precedence, just resolved as one unit rather
+than field-by-field — and on `list` specifically, the config
 file/environment layers for `--filter` are skipped entirely unless
 `--filter` is also passed on that same command line.
 
@@ -349,25 +365,32 @@ The config file is picked up in this order:
    install)
 
 Only the first file found is used (configs are not merged across
-locations). YAML keys match flag names verbatim, dashes included:
+locations). The YAML nesting mirrors the flag name, so `--log.level`
+is `log:` → `level:`:
 
 ```yaml
 # /etc/miaoprobe/config.yaml
 scripts: /opt/miaospeed-scripts/dist
-proxy: socks5://127.0.0.1:1080
-interval: 5m
-log-level: info
-otel-endpoint: https://otlp-gateway-prod-xx.grafana.net/otlp
-otel-headers: "Authorization=Basic <base64>"
+log:
+  level: info
+probe:
+  proxy: socks5://127.0.0.1:1080
+  interval: 5m
+otel:
+  endpoint: https://otlp-gateway-prod-xx.grafana.net/otlp
+  headers: "Authorization=Basic <base64>"
 ```
 
 Equivalently, for a Docker/Compose deployment:
 
 ```sh
-docker run -e MP_SCRIPTS=/scripts -e MP_PROXY=socks5://host:1080 \
+docker run -e MP_SCRIPTS=/scripts -e MP_PROBE_PROXY=socks5://host:1080 \
   -e MP_OTEL_ENDPOINT=https://otlp-gateway-prod-xx.grafana.net/otlp \
   ghcr.io/cloudpassenger/miaoprobe serve
 ```
+
+See [`config.example.yaml`](config.example.yaml) and
+[`.env.example`](.env.example) for every key with its default.
 
 ## Linting
 
@@ -434,7 +457,7 @@ display; scripts that only set `text`/`background` are unaffected:
   Go-level execution errors.
 - `extra` (array of `{key, label, value, type, unit}`): free-form
   additional metrics (e.g. an IP quality score), rendered as `label: value`
-  in the CLI table and kept fully structured in `--format json`.
+  in the CLI table and kept fully structured in `--output.format json`.
 
 ```sh
 make compat-test
@@ -473,7 +496,7 @@ tools/fetchscripts/ fetches the latest miaospeed-scripts nightly for embedding
 - No `async`/`await`/`Promise` support — `fetch()` is synchronous, matching
   every script in `miaospeed-scripts`.
 - No web UI/dashboard; Grafana is the intended downstream consumer.
-- No cron scheduling — `serve` only supports a fixed `--interval`.
+- No cron scheduling — `serve` only supports a fixed `--probe.interval`.
 - No remote script repository fetching or hot reload *at runtime*; point
   `--scripts` at a local checkout and re-run to pick up updates. (Embedded
   builds fetch a nightly snapshot at *build* time — see [Script

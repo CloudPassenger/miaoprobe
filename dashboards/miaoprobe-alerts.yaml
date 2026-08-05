@@ -11,7 +11,7 @@
 #
 #   promtool check rules dashboards/miaoprobe-alerts.yaml
 #
-# Thresholds below assume the default `--interval 5m`. If you run a
+# Thresholds below assume the default `--probe.interval 5m`. If you run a
 # different interval, scale the staleness windows with it: the rule of
 # thumb is "3 missed cycles".
 #
@@ -126,7 +126,7 @@ groups:
 
       # A cycle that outlives the polling interval means ticks are dropped
       # and the effective polling rate silently degrades. 240s = 80% of the
-      # default 5m interval; scale this with your own --interval.
+      # default 5m interval; scale this with your own --probe.interval.
       - alert: MiaoprobePollCycleSlow
         expr: |
           miaoprobe_poll_duration_seconds > 240
@@ -137,6 +137,6 @@ groups:
           summary: "miaoprobe poll cycle is approaching the polling interval"
           description: >-
             A full poll cycle took {{ $value | humanizeDuration }}, close to
-            or beyond the configured --interval. Ticks will be dropped and
-            the effective polling rate will degrade. Raise --concurrency, or
-            raise --interval.
+            or beyond the configured --probe.interval. Ticks will be dropped and
+            the effective polling rate will degrade. Raise --probe.concurrency, or
+            raise --probe.interval.

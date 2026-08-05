@@ -5,20 +5,21 @@
 #   $XDG_CONFIG_HOME/miaoprobe/config.yaml (or ~/.config/miaoprobe/config.yaml)
 #   /etc/miaoprobe/config.yaml             (conventional systemd path)
 #
-# Keys match flag names verbatim (dashes included), except `filter` (see
-# below), which is a nested section instead of a scalar. `list`, `check`,
-# and `serve` all read this same file; a command simply ignores keys for
-# flags it doesn't have. Precedence, highest to lowest: command-line flag >
-# MP_-prefixed environment variable > this file > flag default. See
+# The nesting here mirrors the flag names: a `log.level:` key under `log:`
+# is the --log.level flag, and MP_LOG_LEVEL in the environment. `list`,
+# `check`, and `serve` all read this same file; a command simply ignores
+# keys for flags it doesn't have (so `check` skips the polling and metrics
+# groups). Precedence, highest to lowest: command-line flag > MP_-prefixed
+# environment variable > this file > flag default. See
 # README.md#configuration.
 
-# --- global (check + serve) ---
+# --- global (list + check + serve) ---
 
-# log level: trace, debug, info, warn, or error
-log-level: info
-
-# log format: rich (colored console), text, or json
-log-format: rich
+log:
+  # trace, debug, info, warn, or error
+  level: info
+  # rich (colored console), text, or json
+  format: rich
 
 # --- shared by list, check, and serve ---
 
@@ -32,8 +33,8 @@ scripts: /opt/miaospeed-scripts/dist
 # decides whether matches are kept (include, the default) or dropped
 # (exclude). All fields are optional; an empty filter matches everything.
 # NOTE: unlike check/serve, `list` ignores this section entirely (and the
-# MP_FILTER_* environment variables below) unless --filter is also passed
-# on its own command line -- it defaults to showing every script. See
+# MP_FILTER_* environment variables) unless --filter is also passed on its
+# own command line -- it defaults to showing every script. See
 # README.md#selecting-scripts---filter. Equivalent MP_FILTER_* environment
 # variables (comma-separated): MP_FILTER_MODE, MP_FILTER_CATEGORY,
 # MP_FILTER_REGION, MP_FILTER_TAG, MP_FILTER_ID.
@@ -44,42 +45,52 @@ filter:
   tag: []
   id: []
 
-# output format: table or json
-format: table
+# --- list and check ---
 
-# --- shared by check and serve ---
+output:
+  # table or json
+  format: table
 
-# egress proxy: http://host:port, https://host:port, or socks5://host:port
-# (empty = direct)
-proxy: socks5://127.0.0.1:1080
+# --- how a probe runs (check + serve) ---
 
-# per-script execution timeout
-timeout: 30s
+probe:
+  # egress proxy: http://host:port, https://host:port, or
+  # socks5://host:port (empty = direct)
+  proxy: socks5://127.0.0.1:1080
+
+  # per-script execution timeout. A hard deadline: it cancels a script's
+  # in-flight fetch() as well as interrupting its JavaScript.
+  timeout: 30s
+
+  # --- serve only ---
+
+  # polling interval
+  interval: 5m
+
+  # how many scripts to probe in parallel; a cycle takes roughly
+  # ceil(scripts / concurrency) slow probes instead of the sum of all of
+  # them
+  concurrency: 8
 
 # --- serve only ---
 
-# polling interval
-interval: 5m
+metrics:
+  # address /metrics is served on
+  listen: ":9765"
 
-# how many scripts to probe in parallel; a cycle takes roughly
-# ceil(scripts / concurrency) slow probes instead of the sum of all of them
-concurrency: 8
+otel:
+  # OTLP endpoint to push metrics to (e.g. Grafana Cloud's OTLP gateway);
+  # empty disables push, falls back to OTEL_EXPORTER_OTLP_* env vars
+  endpoint: ""
 
-# address /metrics is served on
-listen: ":9765"
+  # OTLP wire protocol: http/protobuf or grpc
+  protocol: http/protobuf
 
-# OTLP endpoint to push metrics to (e.g. Grafana Cloud's OTLP gateway);
-# empty disables push, falls back to OTEL_EXPORTER_OTLP_* env vars
-otel-endpoint: ""
+  # comma-separated key=value headers sent with every OTLP export
+  headers: ""
 
-# OTLP wire protocol: http/protobuf or grpc
-otel-protocol: http/protobuf
+  # disable TLS for the OTLP connection (local collectors only)
+  insecure: false
 
-# comma-separated key=value headers sent with every OTLP export
-otel-headers: ""
-
-# disable TLS for the OTLP connection (local collectors only)
-otel-insecure: false
-
-# how often buffered metrics are pushed to otel-endpoint
-otel-interval: 1m
+  # how often buffered metrics are pushed to otel.endpoint
+  interval: 1m
