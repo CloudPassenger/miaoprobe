@@ -50,7 +50,7 @@ go build -o miaoprobe ./cmd/miaoprobe
 | `--proxy`   | ``      | `http://host:port` / `https://host:port` / `socks5://host:port`; empty = direct |
 | `--filter`  | ``      | comma-separated region/tag match, e.g. `hk,stream`         |
 | `--timeout` | `30s`   | per-script execution timeout                               |
-| `--format`  | `table` | `table` or `json`                                          |
+| `--format`  | `table` | `table` (colorized box-drawing table) or `json`             |
 
 ## Serve mode: Prometheus exporter
 
@@ -106,6 +106,30 @@ mapped through a value mapping (`1` → green "Unlocked", `0` → red "Failed",
 to MediaUnlockTest's output. Dashboards are not shipped with this project;
 build them against the metrics above.
 
+## Logging
+
+`--log-level` and `--log-format` are global flags accepted by both `check`
+and `serve`. Logs always go to stderr, so `check --format json` output on
+stdout stays parseable even with verbose logging enabled.
+
+| Flag           | Default | Values                                                        |
+|----------------|---------|-----------------------------------------------------------------|
+| `--log-level`  | `info`  | `trace`, `debug`, `info`, `warn`, `error`                        |
+| `--log-format` | `rich`  | `rich` (colored console via [tint][tint], colors auto-disabled when not a TTY), `text` (plain `slog` text), `json` |
+
+```sh
+# see every fetch() call and full response detail
+./miaoprobe check --scripts /path/to/miaospeed-scripts/dist/global/netflix.js \
+  --log-level trace --log-format json
+```
+
+- `debug` logs each outgoing `fetch()` call and retry attempt (method, url, retry/timeout config).
+- `trace` additionally logs response detail (status code, body size, redirect count) for successful attempts.
+- A script's own `println()` output is routed through the same logger (`level=info`, `source=script`), so it also honors `--log-format`.
+- Every log line for one script run carries a `script=<id>` attribute for correlation.
+
+[tint]: https://github.com/lmittmann/tint
+
 ## Cross-compilation
 
 `CGO_ENABLED=0` builds are required and verified for every target below:
@@ -145,6 +169,7 @@ internal/network/  http.Client construction for direct/HTTP-proxy/SOCKS5 egress,
 internal/script/   loads a single .js file, or a directory's index.json manifest
 internal/probe/    glue: run one script once through engine+network
 internal/exporter/ Prometheus metrics, background→status color mapping, polling
+internal/logging/  slog setup: rich/text/json formats, custom TRACE level
 internal/cli/      check and serve subcommands
 internal/compat/   compatibility test against a miaospeed-scripts build
 ```
