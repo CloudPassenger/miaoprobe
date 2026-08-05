@@ -19,6 +19,32 @@ import (
 //go:embed predefined.js
 var predefinedJS string
 
+const commonjsShimJS = "var module = { exports: {} }; var exports = module.exports;"
+
+// predefined.js and the CommonJS shim are identical for every runtime, so
+// they are compiled once for the process instead of on every probe. A
+// *goja.Program is explicitly documented as not linked to any runtime and
+// safe for concurrent use, so sharing these across workers is sound.
+//
+// These compile at init because both sources are compile-time constants
+// (one embedded, one literal): a failure here is a build defect, not a
+// runtime condition, so there is no error path worth threading to callers.
+var (
+	predefinedProgram = goja.MustCompile("predefined.js", predefinedJS, false)
+	commonjsShim      = goja.MustCompile("commonjs-shim.js", commonjsShimJS, false)
+)
+
+// Compile turns script source into a reusable program. Callers that run the
+// same source repeatedly (the serve poller) should compile once and pass
+// the result to RunProgram, which avoids re-parsing on every execution.
+func Compile(name, source string) (*goja.Program, error) {
+	prog, err := goja.Compile(name, source, false)
+	if err != nil {
+		return nil, fmt.Errorf("compile script %s: %w", name, err)
+	}
+	return prog, nil
+}
+
 // FetchBuilder constructs the fetch() host function for a runtime. It is a
 // callback (rather than a plain FetchFunc) because implementations such as
 // network.FetchFactory need the *goja.Runtime to build return values.
@@ -45,10 +71,10 @@ func New(buildFetch FetchBuilder, logger *slog.Logger) (*goja.Runtime, error) {
 		return nil, fmt.Errorf("install fetch global: %w", err)
 	}
 
-	if _, err := vm.RunString(predefinedJS); err != nil {
+	if _, err := vm.RunProgram(predefinedProgram); err != nil {
 		return nil, fmt.Errorf("load predefined script: %w", err)
 	}
-	if _, err := vm.RunString("var module = { exports: {} }; var exports = module.exports;"); err != nil {
+	if _, err := vm.RunProgram(commonjsShim); err != nil {
 		return nil, fmt.Errorf("install commonjs shim: %w", err)
 	}
 
@@ -107,8 +133,20 @@ var ErrNoHandler = errors.New("script does not export a handler function (expect
 // extra} object (all fields but text/background are optional). Both the
 // top-level script evaluation and the handler call are bounded by timeout.
 func RunScript(vm *goja.Runtime, source string, timeout time.Duration) (Result, error) {
+	prog, err := Compile("script.js", source)
+	if err != nil {
+		return Result{}, err
+	}
+	return RunProgram(vm, prog, timeout)
+}
+
+// RunProgram is RunScript for an already-compiled program. vm must be a
+// fresh runtime: handler resolution prefers module.exports, so reusing a
+// runtime across different scripts would let one script's handler (and
+// globals) be picked up by the next.
+func RunProgram(vm *goja.Runtime, prog *goja.Program, timeout time.Duration) (Result, error) {
 	if _, err := RunWithTimeout(vm, timeout, func() (goja.Value, error) {
-		return vm.RunString(source)
+		return vm.RunProgram(prog)
 	}); err != nil {
 		return Result{}, fmt.Errorf("execute script: %w", err)
 	}
