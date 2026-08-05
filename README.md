@@ -131,18 +131,30 @@ stdout stays parseable even with verbose logging enabled.
 
 [tint]: https://github.com/lmittmann/tint
 
-## Cross-compilation
-
-`CGO_ENABLED=0` builds are required and verified for every target below:
+## Linting
 
 ```sh
-GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -o miaoprobe-linux-amd64   ./cmd/miaoprobe
-GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build -o miaoprobe-linux-arm64   ./cmd/miaoprobe
-GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -o miaoprobe-darwin-arm64  ./cmd/miaoprobe
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o miaoprobe-windows-amd64.exe ./cmd/miaoprobe
+make lint   # golangci-lint run ./..., config in .golangci.yml
 ```
 
-Or simply `make cross` to build all four into `dist/`.
+Runs automatically on every push/PR via `.github/workflows/ci.yml`.
+
+## Cross-compilation and releases
+
+Builds are `CGO_ENABLED=0` for every target and produced via
+[goreleaser](https://goreleaser.com) (see `.goreleaser.yaml`), covering
+linux/darwin/windows across amd64/arm64. Pushing a `vX.Y.Z` tag triggers
+`.github/workflows/release.yml`, which builds and publishes archives plus
+checksums to a GitHub Release.
+
+To build locally without publishing:
+
+```sh
+make release-snapshot   # goreleaser release --snapshot --clean, output in dist/
+```
+
+`miaoprobe --version` reports the version/commit/date baked in by goreleaser's
+ldflags (`internal/cli.version`, `.commit`, `.date`).
 
 ## Compatibility testing
 
