@@ -10,6 +10,11 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+const (
+	schemeHTTP  = "http"
+	schemeHTTPS = "https"
+)
+
 // ProxyConfig describes the single egress proxy fetch() dials through when
 // useHost is not set. A nil ProxyConfig means direct/local egress.
 type ProxyConfig struct {
@@ -30,7 +35,7 @@ func ParseProxy(raw string) (*ProxyConfig, error) {
 		return nil, fmt.Errorf("invalid proxy url %q: %w", raw, err)
 	}
 	switch u.Scheme {
-	case "http", "https", "socks5", "socks5h":
+	case schemeHTTP, schemeHTTPS, "socks5", "socks5h":
 	default:
 		return nil, fmt.Errorf("unsupported proxy scheme %q (only http/https/socks5 are supported)", u.Scheme)
 	}
@@ -56,7 +61,7 @@ func dialContextFunc(cfg *ProxyConfig, direct bool, dialer *net.Dialer) (func(co
 	}
 
 	switch cfg.Scheme {
-	case "http", "https":
+	case schemeHTTP, schemeHTTPS:
 		return dialer.DialContext, nil
 	case "socks5", "socks5h":
 		var auth *proxy.Auth

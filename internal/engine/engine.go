@@ -38,8 +38,12 @@ func New(buildFetch FetchBuilder, logger *slog.Logger) (*goja.Runtime, error) {
 	console.Enable(vm)
 	vm.SetMaxCallStackSize(1024)
 
-	vm.Set("print", printFunc(logger))
-	vm.Set("fetch", buildFetch(vm))
+	if err := vm.Set("print", printFunc(logger)); err != nil {
+		return nil, fmt.Errorf("install print global: %w", err)
+	}
+	if err := vm.Set("fetch", buildFetch(vm)); err != nil {
+		return nil, fmt.Errorf("install fetch global: %w", err)
+	}
 
 	if _, err := vm.RunString(predefinedJS); err != nil {
 		return nil, fmt.Errorf("load predefined script: %w", err)
@@ -121,7 +125,7 @@ func RunScript(vm *goja.Runtime, source string, timeout time.Duration) (Result, 
 		return Result{}, fmt.Errorf("run handler: %w", err)
 	}
 
-	return parseResult(vm, ret)
+	return parseResult(ret)
 }
 
 func resolveHandler(vm *goja.Runtime) (goja.Callable, error) {
@@ -138,7 +142,7 @@ func resolveHandler(vm *goja.Runtime) (goja.Callable, error) {
 	return nil, ErrNoHandler
 }
 
-func parseResult(vm *goja.Runtime, v goja.Value) (Result, error) {
+func parseResult(v goja.Value) (Result, error) {
 	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
 		return Result{}, errors.New("handler returned no result")
 	}

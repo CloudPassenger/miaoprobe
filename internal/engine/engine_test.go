@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -122,7 +123,7 @@ func TestRunScriptNoHandler(t *testing.T) {
 	}
 
 	_, err = RunScript(vm, `var x = 1;`, time.Second)
-	if err != ErrNoHandler {
+	if !errors.Is(err, ErrNoHandler) {
 		t.Fatalf("expected ErrNoHandler, got %v", err)
 	}
 }

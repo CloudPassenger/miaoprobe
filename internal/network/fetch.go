@@ -90,7 +90,9 @@ func FetchFactory(vm *goja.Runtime, opts FetchOptions) func(call goja.FunctionCa
 			return goja.Null()
 		}
 
-		respBody, resp, redirects := RequestWithRetry(client, retry, timeout, &RequestOptions{
+		// Body is already closed inside doRequest (internal/network/request.go);
+		// the linter cannot see across the RequestWithRetry->doRequest boundary.
+		respBody, resp, redirects := RequestWithRetry(client, retry, timeout, &RequestOptions{ //nolint:bodyclose
 			Method:  method,
 			URL:     url,
 			Headers: headers,

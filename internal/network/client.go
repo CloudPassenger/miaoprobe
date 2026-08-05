@@ -32,7 +32,7 @@ func NewClient(cfg *ProxyConfig, direct bool, sni string, dialTimeout time.Durat
 		TLSClientConfig:       tlsConf,
 	}
 
-	if !direct && cfg != nil && (cfg.Scheme == "http" || cfg.Scheme == "https") {
+	if !direct && cfg != nil && (cfg.Scheme == schemeHTTP || cfg.Scheme == schemeHTTPS) {
 		proxyURL := &url.URL{Scheme: cfg.Scheme, Host: cfg.Host}
 		if cfg.User != "" {
 			proxyURL.User = url.UserPassword(cfg.User, cfg.Pass)

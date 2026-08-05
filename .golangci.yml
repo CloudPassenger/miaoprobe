@@ -1,0 +1,42 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - bodyclose
+    - copyloopvar
+    - errorlint
+    - gocritic
+    - goconst
+    - misspell
+    - nilerr
+    - revive
+    - unconvert
+    - unparam
+    - unused
+
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+    revive:
+      rules:
+        - name: unused-parameter
+          disabled: true
+        - name: package-comments
+          disabled: true
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gocritic
+          - goconst
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
