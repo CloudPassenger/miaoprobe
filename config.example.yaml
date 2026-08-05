@@ -1,0 +1,63 @@
+# Example miaoprobe config file.
+#
+# Copy this to one of the auto-discovered locations, or point --config at it
+# directly:
+#   $XDG_CONFIG_HOME/miaoprobe/config.yaml (or ~/.config/miaoprobe/config.yaml)
+#   /etc/miaoprobe/config.yaml             (conventional systemd path)
+#
+# Keys match flag names verbatim (dashes included). Both `check` and `serve`
+# read this same file; a command simply ignores keys for flags it doesn't
+# have. Precedence, highest to lowest: command-line flag > MP_-prefixed
+# environment variable > this file > flag default. See README.md#configuration.
+
+# --- global (check + serve) ---
+
+# log level: trace, debug, info, warn, or error
+log-level: info
+
+# log format: rich (colored console), text, or json
+log-format: rich
+
+# --- shared by check and serve ---
+
+# required: a .js file, or a directory containing index.json
+scripts: /opt/miaospeed-scripts/dist
+
+# egress proxy: http://host:port, https://host:port, or socks5://host:port
+# (empty = direct)
+proxy: socks5://127.0.0.1:1080
+
+# comma-separated region/tag filter, e.g. hk,stream
+filter: ""
+
+# per-script execution timeout
+timeout: 30s
+
+# --- check only ---
+
+# output format: table or json
+format: table
+
+# --- serve only ---
+
+# polling interval
+interval: 5m
+
+# address /metrics is served on
+listen: ":9765"
+
+# OTLP endpoint to push metrics to (e.g. Grafana Cloud's OTLP gateway);
+# empty disables push, falls back to OTEL_EXPORTER_OTLP_* env vars
+otel-endpoint: ""
+
+# OTLP wire protocol: http/protobuf or grpc
+otel-protocol: http/protobuf
+
+# comma-separated key=value headers sent with every OTLP export
+otel-headers: ""
+
+# disable TLS for the OTLP connection (local collectors only)
+otel-insecure: false
+
+# how often buffered metrics are pushed to otel-endpoint
+otel-interval: 1m

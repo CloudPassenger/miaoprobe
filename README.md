@@ -164,6 +164,50 @@ stdout stays parseable even with verbose logging enabled.
 
 [tint]: https://github.com/lmittmann/tint
 
+## Configuration
+
+Every flag on `check` and `serve` (including the global `--log-level`/
+`--log-format`) can also be set via a YAML config file or environment
+variables, for `systemd`-native and container/cloud-native deployments
+where passing everything on the command line is awkward. Precedence,
+highest to lowest:
+
+1. command-line flag
+2. environment variable (`MP_<FLAG_NAME>`, e.g. `--otel-endpoint` ->
+   `MP_OTEL_ENDPOINT`)
+3. YAML config file
+4. flag default
+
+The config file is picked up in this order:
+
+1. `--config /path/to/config.yaml`, if given explicitly (errors if the
+   file doesn't exist)
+2. `$XDG_CONFIG_HOME/miaoprobe/config.yaml`, or `~/.config/miaoprobe/config.yaml`
+   if `XDG_CONFIG_HOME` isn't set
+3. `/etc/miaoprobe/config.yaml` (the conventional path for a `systemd`-managed
+   install)
+
+Only the first file found is used (configs are not merged across
+locations). YAML keys match flag names verbatim, dashes included:
+
+```yaml
+# /etc/miaoprobe/config.yaml
+scripts: /opt/miaospeed-scripts/dist
+proxy: socks5://127.0.0.1:1080
+interval: 5m
+log-level: info
+otel-endpoint: https://otlp-gateway-prod-xx.grafana.net/otlp
+otel-headers: "Authorization=Basic <base64>"
+```
+
+Equivalently, for a Docker/Compose deployment:
+
+```sh
+docker run -e MP_SCRIPTS=/scripts -e MP_PROXY=socks5://host:1080 \
+  -e MP_OTEL_ENDPOINT=https://otlp-gateway-prod-xx.grafana.net/otlp \
+  ghcr.io/cloudpassenger/miaoprobe serve
+```
+
 ## Linting
 
 ```sh

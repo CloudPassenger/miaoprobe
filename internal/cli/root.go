@@ -21,7 +21,11 @@ func Execute() error {
 		Short:        "Media unlock / network probe tool driven by embedded JS scripts",
 		Version:      fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
 		SilenceUsage: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return loadConfig(cmd)
+		},
 	}
+	root.PersistentFlags().String("config", "", "path to a YAML config file (default: auto-discover $XDG_CONFIG_HOME/miaoprobe/config.yaml, ~/.config/miaoprobe/config.yaml, then /etc/miaoprobe/config.yaml)")
 	root.PersistentFlags().String("log-level", "info", "log level: trace, debug, info, warn, or error")
 	root.PersistentFlags().String("log-format", "rich", "log format: rich (colored console), text, or json")
 	root.AddCommand(newCheckCommand())
