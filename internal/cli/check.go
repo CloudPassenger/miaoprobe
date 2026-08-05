@@ -6,10 +6,12 @@ import (
 	"log/slog"
 	"os"
 	"sort"
-	"text/tabwriter"
 	"time"
 
+	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/CloudPassenger/miaoprobe/internal/exporter"
 	"github.com/CloudPassenger/miaoprobe/internal/network"
@@ -113,12 +115,43 @@ func printJSON(outcomes []probe.Outcome) error {
 }
 
 func printTable(outcomes []probe.Outcome) error {
-	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "ID\tNAME\tSTATUS\tTEXT\tDURATION\tERROR")
+	colorsEnabled := term.IsTerminal(int(os.Stdout.Fd()))
+
+	t := table.NewWriter()
+	t.SetOutputMirror(os.Stdout)
+	t.SetStyle(table.StyleRounded)
+	t.AppendHeader(table.Row{"ID", "NAME", "STATUS", "TEXT", "DURATION", "ERROR"})
+
 	for _, o := range outcomes {
 		row := toRow(o)
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			row.ID, row.Name, row.Status, row.Text, o.Duration.Round(time.Millisecond), row.Error)
+		status := row.Status
+		if colorsEnabled {
+			status = statusColor(row.Status).Sprint(row.Status)
+		}
+		t.AppendRow(table.Row{row.ID, row.Name, status, row.Text, o.Duration.Round(time.Millisecond), row.Error})
 	}
-	return w.Flush()
+
+	t.Render()
+	return nil
+}
+
+// statusColor mirrors the background color semantics in
+// internal/exporter.ClassifyColor for terminal display.
+func statusColor(status string) text.Color {
+	switch status {
+	case "unlocked":
+		return text.FgGreen
+	case "failed":
+		return text.FgRed
+	case "warning":
+		return text.FgYellow
+	case "unknown":
+		return text.FgCyan
+	case "n/a":
+		return text.FgHiBlack
+	case "error":
+		return text.FgHiRed
+	default:
+		return text.FgWhite
+	}
 }
