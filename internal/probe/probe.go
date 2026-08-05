@@ -28,7 +28,58 @@ type Outcome struct {
 // egress) and executes sc's handler, bounded by timeout. Every log line
 // produced while running sc (fetch activity, script println output) is
 // tagged with a "script" attribute for correlation.
+//
+// The script source is compiled on each call; callers that run the same
+// scripts repeatedly should use a Runner instead, which caches the compiled
+// program.
 func Run(ctx context.Context, sc script.Script, proxy *network.ProxyConfig, timeout time.Duration, logger *slog.Logger) Outcome {
+	prog, err := engine.Compile(sc.ID+".js", sc.Source)
+	if err != nil {
+		return Outcome{Script: sc, Err: err}
+	}
+	return run(ctx, sc, prog, proxy, timeout, logger)
+}
+
+// Runner executes scripts repeatedly, caching each script's compiled
+// program so the source is parsed once rather than on every poll.
+//
+// A Runner is safe for concurrent use: the cache is populated up front by
+// NewRunner and only read afterwards, and each Run still builds its own
+// goja.Runtime (which is not goroutine-safe and must not be shared).
+type Runner struct {
+	programs map[string]*goja.Program
+}
+
+// NewRunner compiles every script once. A script that fails to compile is
+// reported in the returned error and excluded from the runner, so one bad
+// script cannot take down the whole service.
+func NewRunner(scripts []script.Script, logger *slog.Logger) *Runner {
+	if logger == nil {
+		logger = logging.Discard()
+	}
+	programs := make(map[string]*goja.Program, len(scripts))
+	for _, sc := range scripts {
+		prog, err := engine.Compile(sc.ID+".js", sc.Source)
+		if err != nil {
+			logger.Error("script failed to compile, it will be skipped", "script", sc.ID, "err", err)
+			continue
+		}
+		programs[sc.ID] = prog
+	}
+	return &Runner{programs: programs}
+}
+
+// Run executes sc using the cached program, falling back to compiling on
+// demand for a script the Runner has not seen.
+func (r *Runner) Run(ctx context.Context, sc script.Script, proxy *network.ProxyConfig, timeout time.Duration, logger *slog.Logger) Outcome {
+	prog, ok := r.programs[sc.ID]
+	if !ok {
+		return Run(ctx, sc, proxy, timeout, logger)
+	}
+	return run(ctx, sc, prog, proxy, timeout, logger)
+}
+
+func run(ctx context.Context, sc script.Script, prog *goja.Program, proxy *network.ProxyConfig, timeout time.Duration, logger *slog.Logger) Outcome {
 	if logger == nil {
 		logger = logging.Discard()
 	}
@@ -56,7 +107,7 @@ func Run(ctx context.Context, sc script.Script, proxy *network.ProxyConfig, time
 		return Outcome{Script: sc, Err: err, Duration: time.Since(start)}
 	}
 
-	res, err := engine.RunScript(vm, sc.Source, timeout)
+	res, err := engine.RunProgram(vm, prog, timeout)
 	duration := time.Since(start)
 	if err != nil {
 		scLogger.Error("script execution failed", "duration", duration, "err", err)
