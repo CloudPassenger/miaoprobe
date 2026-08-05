@@ -22,6 +22,7 @@ import (
 type serveOpts struct {
 	proxyRaw, listen  string
 	interval, timeout time.Duration
+	concurrency       int
 	scripts           []script.Script
 	filterSpec        script.FilterSpec
 
@@ -61,6 +62,7 @@ func newServeCommand() *cobra.Command {
 	cmd.Flags().StringVar(&filterRaw, "filter", "", `script selection, e.g. "category:media,ai;region:hk,us;id:netflix;mode:exclude" (see "miaoprobe list" and README.md#configuration)`)
 	cmd.Flags().DurationVar(&o.interval, "interval", 5*time.Minute, "polling interval")
 	cmd.Flags().DurationVar(&o.timeout, "timeout", 30*time.Second, "per-script execution timeout")
+	cmd.Flags().IntVar(&o.concurrency, "concurrency", exporter.DefaultConcurrency, "how many scripts to probe in parallel")
 	cmd.Flags().StringVar(&o.listen, "listen", ":9765", "address to expose /metrics on")
 
 	cmd.Flags().StringVar(&o.otelEndpoint, "otel-endpoint", "", "OTLP endpoint to push metrics to (e.g. Grafana Cloud's OTLP gateway); empty disables push, honors OTEL_EXPORTER_OTLP_* env vars")
@@ -114,15 +116,31 @@ func runServe(o serveOpts, logger *slog.Logger) error {
 	}
 
 	poller := &exporter.Poller{
-		Scripts:  scripts,
-		Proxy:    proxyCfg,
-		Timeout:  o.timeout,
-		Interval: o.interval,
-		Metrics:  metrics,
-		Logger:   logger,
+		Scripts:     scripts,
+		Proxy:       proxyCfg,
+		Timeout:     o.timeout,
+		Interval:    o.interval,
+		Metrics:     metrics,
+		Logger:      logger,
+		Concurrency: o.concurrency,
 	}
 
-	go poller.Run(ctx)
+	// Wait for the poller to finish its in-flight cycle before Shutdown
+	// flushes, so the final OTLP export includes the last recorded values.
+	pollerDone := make(chan struct{})
+	go func() {
+		defer close(pollerDone)
+		poller.Run(ctx)
+	}()
+	// Registered after the provider.Shutdown defer above, so it runs first
+	// (defers are LIFO).
+	defer func() {
+		select {
+		case <-pollerDone:
+		case <-time.After(5 * time.Second):
+			logger.Warn("poller did not stop in time; exporting anyway")
+		}
+	}()
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(provider.Registry, promhttp.HandlerOpts{}))
@@ -138,7 +156,7 @@ func runServe(o serveOpts, logger *slog.Logger) error {
 	if o.otelEndpoint != "" {
 		logger.Info("pushing metrics via otlp", "endpoint", o.otelEndpoint, "protocol", o.otelProtocol, "interval", o.otelInterval)
 	}
-	logger.Info("serving metrics", "listen", o.listen, "interval", o.interval)
+	logger.Info("serving metrics", "listen", o.listen, "interval", o.interval, "concurrency", poller.Concurrency)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}

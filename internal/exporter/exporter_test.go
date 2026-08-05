@@ -151,6 +151,71 @@ func TestLastSuccessRecordedOnSuccessOnly(t *testing.T) {
 	mustLine(t, out, `miaoprobe_check_errors_total{id="bad"} 1`)
 }
 
+// The whole point of the worker pool: N slow scripts must not take N *
+// duration when run with concurrency.
+func TestPollOnceRunsScriptsConcurrently(t *testing.T) {
+	const n = 8
+	scripts := make([]script.Script, 0, n)
+	for i := range n {
+		scripts = append(scripts, script.Script{
+			ID: string(rune('a'+i)) + "-slow",
+			// Busy-wait ~150ms in JS (no network needed).
+			Source: `module.exports = function() {
+				var end = Date.now() + 150;
+				while (Date.now() < end) {}
+				return {text: "ok", status: "unlocked"};
+			};`,
+		})
+	}
+
+	p, scrape := newTestPoller(t, scripts)
+	p.Concurrency = n
+
+	start := time.Now()
+	pollCycle(t, p)
+	elapsed := time.Since(start)
+
+	if elapsed > 900*time.Millisecond {
+		t.Fatalf("expected concurrent execution, took %v for %d scripts of ~150ms", elapsed, n)
+	}
+	if got := strings.Count(scrape(), `miaoprobe_unlock_status{`); got != n {
+		t.Fatalf("expected %d status series, got %d", n, got)
+	}
+}
+
+// A panic in one script must not kill the poller.
+func TestPollerSurvivesScriptPanic(t *testing.T) {
+	p, scrape := newTestPoller(t, []script.Script{
+		{ID: "boom", Source: `module.exports = function() { null.x; };`},
+		{ID: "fine", Source: `module.exports = function() { return {text: "ok", status: "unlocked"}; };`},
+	})
+	pollCycle(t, p)
+
+	out := scrape()
+	mustLine(t, out, `miaoprobe_unlock_status{id="fine"} 1`)
+	mustLine(t, out, `miaoprobe_unlock_status{id="boom"} -1`)
+}
+
+func TestConcurrencyDefaults(t *testing.T) {
+	scripts := make([]script.Script, 32)
+	cases := []struct{ set, want int }{
+		{0, DefaultConcurrency},
+		{-5, DefaultConcurrency},
+		{3, 3},
+		{100, 32}, // capped at script count
+	}
+	for _, c := range cases {
+		p := &Poller{Scripts: scripts, Concurrency: c.set}
+		if got := p.concurrency(); got != c.want {
+			t.Errorf("Concurrency=%d -> %d, want %d", c.set, got, c.want)
+		}
+	}
+	empty := &Poller{}
+	if got := empty.concurrency(); got != 1 {
+		t.Errorf("empty poller concurrency = %d, want 1", got)
+	}
+}
+
 // pollCycle drives exactly one polling cycle with a live context, mirroring
 // what Poller.Run does before entering its ticker loop.
 func pollCycle(t *testing.T, p *Poller) {

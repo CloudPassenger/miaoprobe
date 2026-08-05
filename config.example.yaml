@@ -61,6 +61,10 @@ timeout: 30s
 # polling interval
 interval: 5m
 
+# how many scripts to probe in parallel; a cycle takes roughly
+# ceil(scripts / concurrency) slow probes instead of the sum of all of them
+concurrency: 8
+
 # address /metrics is served on
 listen: ":9765"
 

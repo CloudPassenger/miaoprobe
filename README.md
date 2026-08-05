@@ -157,7 +157,15 @@ parameter is additionally clamped to 30s per attempt (with `retry` capped at
 | `--filter`   | ``      | same as `check`                                 |
 | `--interval` | `5m`    | polling interval (duration format, e.g. `30s`, `5m`) |
 | `--timeout`  | `30s`   | per-script execution timeout                    |
+| `--concurrency` | `8`  | how many scripts to probe in parallel           |
 | `--listen`   | `:9765` | address `/metrics` is served on                 |
+
+Scripts are probed in parallel (`--concurrency`), so a cycle takes roughly
+`ceil(scripts / concurrency)` slow probes rather than the sum of all of
+them. If a cycle still outlives `--interval`, ticks are dropped and the
+effective polling rate silently drops — `serve` logs a warning when this
+happens, and exposes cycle wall time as `miaoprobe_poll_duration_seconds`.
+
 
 `serve` also builds on a single OpenTelemetry `MeterProvider` internally, so
 the same instruments can be read two ways at once: pulled from `/metrics`
@@ -402,14 +410,18 @@ MIAOSPEED_SCRIPTS_DIR=/path/to/miaospeed-scripts/dist make compat-test
 ```
 cmd/miaoprobe/     CLI entrypoint
 internal/engine/   goja VM: predefined.js (get/safeStringify/safeParse/println),
-                   module.exports/handler resolution, timeout via vm.Interrupt
+                   module.exports/handler resolution, precompiled *goja.Program
+                   reuse, timeout via vm.Interrupt
 internal/network/  http.Client construction for direct/HTTP-proxy/SOCKS5 egress,
                    plus the fetch() host function and its retry/timeout semantics
+                   (context-bounded and clamped, so one script cannot stall a poll)
 internal/script/   loads a single .js file, or a directory's index.json manifest;
                    also loads a miaospeed-scripts nightly embedded at build time
                    (-tags embedscripts, see tools/fetchscripts)
-internal/probe/    glue: run one script once through engine+network
-internal/exporter/ OTel instruments, background→status color mapping, polling
+internal/probe/    glue: run one script once through engine+network; Runner caches
+                   compiled programs, one fresh VM per probe for isolation
+internal/exporter/ OTel instruments, background→status color mapping, concurrent
+                   polling
 internal/otelsetup/ MeterProvider: Prometheus pull reader + optional OTLP push reader
 internal/logging/  slog setup: rich/text/json formats, custom TRACE level
 internal/cli/      check and serve subcommands

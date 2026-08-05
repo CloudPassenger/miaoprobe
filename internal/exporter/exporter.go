@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -66,6 +68,10 @@ func NewMetrics(meter otelmetric.Meter) (*Metrics, error) {
 	}, nil
 }
 
+// DefaultConcurrency is the number of scripts polled in parallel when
+// Poller.Concurrency is unset.
+const DefaultConcurrency = 8
+
 // Poller periodically runs a set of scripts and updates Metrics.
 type Poller struct {
 	Scripts  []script.Script
@@ -74,6 +80,12 @@ type Poller struct {
 	Interval time.Duration
 	Metrics  *Metrics
 	Logger   *slog.Logger
+
+	// Concurrency bounds how many scripts are probed in parallel.
+	// Defaults to DefaultConcurrency; values below 1 are treated as the
+	// default. Each worker builds its own goja runtime, so this also caps
+	// peak memory and file-descriptor use.
+	Concurrency int
 
 	runner *probe.Runner
 }
@@ -109,6 +121,20 @@ func (p *Poller) logger() *slog.Logger {
 	return p.Logger
 }
 
+func (p *Poller) concurrency() int {
+	n := p.Concurrency
+	if n < 1 {
+		n = DefaultConcurrency
+	}
+	if n > len(p.Scripts) {
+		n = len(p.Scripts)
+	}
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
 // publishScriptInfo emits the static metadata series once per process.
 // Keeping name/region/tags here rather than on miaoprobe_unlock_status means
 // editing a script's metadata cannot orphan a status series: gauge attribute
@@ -130,14 +156,36 @@ func (p *Poller) pollOnce(ctx context.Context) {
 	logger := p.logger()
 	start := time.Now()
 
+	workers := p.concurrency()
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+
 	for _, sc := range p.Scripts {
 		select {
 		case <-ctx.Done():
+			wg.Wait()
 			return
-		default:
+		case sem <- struct{}{}:
 		}
-		p.probeAndRecord(ctx, sc, logger)
+
+		wg.Add(1)
+		go func(sc script.Script) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			// A panic inside a script's host calls would otherwise take the
+			// whole process down and end the polling loop for good.
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Error("recovered panic while probing script", "script", sc.ID,
+						"panic", r, "stack", string(debugStack()))
+					p.recordUnknown(ctx, sc)
+				}
+			}()
+			p.probeAndRecord(ctx, sc, logger)
+		}(sc)
 	}
+
+	wg.Wait()
 
 	elapsed := time.Since(start)
 	p.Metrics.PollDuration.Record(ctx, elapsed.Seconds())
@@ -145,10 +193,10 @@ func (p *Poller) pollOnce(ctx context.Context) {
 	// A cycle that outlives its interval means Ticker will drop ticks and
 	// the effective polling rate silently degrades, so make it visible.
 	if p.Interval > 0 && elapsed > p.Interval {
-		logger.Warn("poll cycle exceeded interval; consider raising --interval",
-			"elapsed", elapsed, "interval", p.Interval, "scripts", len(p.Scripts))
+		logger.Warn("poll cycle exceeded interval; consider raising --concurrency or --interval",
+			"elapsed", elapsed, "interval", p.Interval, "scripts", len(p.Scripts), "concurrency", workers)
 	} else {
-		logger.Debug("poll cycle finished", "elapsed", elapsed, "scripts", len(p.Scripts))
+		logger.Debug("poll cycle finished", "elapsed", elapsed, "scripts", len(p.Scripts), "concurrency", workers)
 	}
 }
 
@@ -182,4 +230,17 @@ func (p *Poller) probeAndRecord(ctx context.Context, sc script.Script, logger *s
 
 	p.Metrics.UnlockStatus.Record(ctx, value, idAttr)
 	p.Metrics.LastSuccess.Record(ctx, float64(time.Now().Unix()), idAttr)
+}
+
+// recordUnknown marks a script's status as indeterminate, used when probing
+// it panicked and no outcome is available.
+func (p *Poller) recordUnknown(ctx context.Context, sc script.Script) {
+	idAttr := otelmetric.WithAttributes(attribute.String("id", sc.ID))
+	p.Metrics.Errors.Add(ctx, 1, idAttr)
+	p.Metrics.UnlockStatus.Record(ctx, StatusUnknown, idAttr)
+}
+
+func debugStack() []byte {
+	buf := make([]byte, 8192)
+	return buf[:runtime.Stack(buf, false)]
 }
