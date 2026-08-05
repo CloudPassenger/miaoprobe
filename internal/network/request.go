@@ -12,6 +12,17 @@ import (
 	"github.com/CloudPassenger/miaoprobe/internal/logging"
 )
 
+// MaxRequestTimeoutMs bounds the per-attempt timeout a script may request
+// via fetch()'s `timeout` param. Scripts are untrusted input as far as
+// scheduling is concerned: an unclamped value (combined with up to 10
+// retries) would let a single script stall a whole poll cycle for minutes,
+// since goja's interrupt cannot preempt a blocking Go call.
+const MaxRequestTimeoutMs int64 = 30000
+
+// DefaultRequestTimeoutMs is used when a script omits `timeout` or passes a
+// non-positive value, matching miaospeed's fetch default.
+const DefaultRequestTimeoutMs int64 = 3000
+
 // RequestOptions mirrors the fields fetch() accepts from a script.
 type RequestOptions struct {
 	Method  string
@@ -29,6 +40,18 @@ func clampInt(v, min, max int) int {
 	}
 	if v > max {
 		return max
+	}
+	return v
+}
+
+// clampTimeoutMs normalizes a script-supplied per-attempt timeout into
+// (0, MaxRequestTimeoutMs].
+func clampTimeoutMs(v int64) int64 {
+	if v <= 0 {
+		return DefaultRequestTimeoutMs
+	}
+	if v > MaxRequestTimeoutMs {
+		return MaxRequestTimeoutMs
 	}
 	return v
 }
@@ -73,13 +96,16 @@ func doRequest(ctx context.Context, client *http.Client, opt *RequestOptions) ([
 }
 
 // RequestWithRetry sends the request up to retry times (clamped to [1,10]),
-// waiting timeoutMs milliseconds for each attempt, and returns the first
-// successful response. If every attempt fails, resp is nil.
-func RequestWithRetry(client *http.Client, retry int, timeoutMs int64, opt *RequestOptions, logger *slog.Logger) ([]byte, *http.Response, []string) {
+// waiting timeoutMs milliseconds (clamped to MaxRequestTimeoutMs) for each
+// attempt, and returns the first successful response. If every attempt
+// fails, resp is nil.
+//
+// Each attempt's deadline is derived from ctx, so cancelling ctx (process
+// shutdown, or the per-probe deadline) aborts the in-flight request and
+// stops further retries instead of running to completion.
+func RequestWithRetry(ctx context.Context, client *http.Client, retry int, timeoutMs int64, opt *RequestOptions, logger *slog.Logger) ([]byte, *http.Response, []string) {
 	retry = clampInt(retry, 1, 10)
-	if timeoutMs <= 0 {
-		timeoutMs = 3000
-	}
+	timeoutMs = clampTimeoutMs(timeoutMs)
 	if logger == nil {
 		logger = logging.Discard()
 	}
@@ -89,10 +115,15 @@ func RequestWithRetry(client *http.Client, retry int, timeoutMs int64, opt *Requ
 	var redirects []string
 
 	for i := 0; resp == nil && i < retry; i++ {
+		if err := ctx.Err(); err != nil {
+			logger.Debug("http request canceled before attempt", "method", opt.Method, "url", opt.URL, "attempt", i+1, "err", err)
+			break
+		}
+
 		logger.Debug("http request", "method", opt.Method, "url", opt.URL, "attempt", i+1, "retry", retry, "timeoutMs", timeoutMs)
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMs)*time.Millisecond)
-		b, r, rd, err := doRequest(ctx, client, opt)
+		attemptCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
+		b, r, rd, err := doRequest(attemptCtx, client, opt)
 		cancel()
 
 		if err != nil {

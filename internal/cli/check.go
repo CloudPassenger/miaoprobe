@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -41,7 +42,7 @@ func newCheckCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runCheck(scripts, proxyRaw, filterSpec, format, timeout, logger)
+			return runCheck(cmd.Context(), scripts, proxyRaw, filterSpec, format, timeout, logger)
 		},
 	}
 
@@ -54,7 +55,7 @@ func newCheckCommand() *cobra.Command {
 	return cmd
 }
 
-func runCheck(scripts []script.Script, proxyRaw string, filterSpec script.FilterSpec, format string, timeout time.Duration, logger *slog.Logger) error {
+func runCheck(ctx context.Context, scripts []script.Script, proxyRaw string, filterSpec script.FilterSpec, format string, timeout time.Duration, logger *slog.Logger) error {
 	proxyCfg, err := network.ParseProxy(proxyRaw)
 	if err != nil {
 		return err
@@ -65,7 +66,7 @@ func runCheck(scripts []script.Script, proxyRaw string, filterSpec script.Filter
 
 	outcomes := make([]probe.Outcome, len(scripts))
 	for i, sc := range scripts {
-		outcomes[i] = probe.Run(sc, proxyCfg, timeout, logger)
+		outcomes[i] = probe.Run(ctx, sc, proxyCfg, timeout, logger)
 	}
 
 	switch format {

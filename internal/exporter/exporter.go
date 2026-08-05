@@ -77,7 +77,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 	}
 
 	for _, sc := range p.Scripts {
-		outcome := probe.Run(sc, p.Proxy, p.Timeout, logger)
+		outcome := probe.Run(ctx, sc, p.Proxy, p.Timeout, logger)
 		idAttr := otelmetric.WithAttributes(attribute.String("id", sc.ID))
 		p.Metrics.Duration.Record(ctx, outcome.Duration.Seconds(), idAttr)
 

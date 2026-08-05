@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
@@ -14,6 +15,13 @@ type FetchOptions struct {
 	Proxy       *ProxyConfig
 	DialTimeout time.Duration
 	Logger      *slog.Logger
+
+	// Context bounds every request issued by the returned fetch function.
+	// Cancelling it (process shutdown, per-probe deadline) aborts in-flight
+	// requests, which is the only way to stop a script blocked in fetch:
+	// goja's interrupt cannot preempt a blocking Go call. Defaults to
+	// context.Background() when nil.
+	Context context.Context
 }
 
 // FetchFactory returns a goja host function implementing the synchronous
@@ -28,6 +36,10 @@ func FetchFactory(vm *goja.Runtime, opts FetchOptions) func(call goja.FunctionCa
 	logger := opts.Logger
 	if logger == nil {
 		logger = logging.Discard()
+	}
+	baseCtx := opts.Context
+	if baseCtx == nil {
+		baseCtx = context.Background()
 	}
 	return func(call goja.FunctionCall) goja.Value {
 		url := call.Argument(0).String()
@@ -89,10 +101,9 @@ func FetchFactory(vm *goja.Runtime, opts FetchOptions) func(call goja.FunctionCa
 			logger.Warn("failed to build http client", "url", url, "err", err)
 			return goja.Null()
 		}
-
 		// Body is already closed inside doRequest (internal/network/request.go);
 		// the linter cannot see across the RequestWithRetry->doRequest boundary.
-		respBody, resp, redirects := RequestWithRetry(client, retry, timeout, &RequestOptions{ //nolint:bodyclose
+		respBody, resp, redirects := RequestWithRetry(baseCtx, client, retry, timeout, &RequestOptions{ //nolint:bodyclose
 			Method:  method,
 			URL:     url,
 			Headers: headers,

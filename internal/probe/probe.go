@@ -4,6 +4,7 @@
 package probe
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
@@ -27,7 +28,7 @@ type Outcome struct {
 // egress) and executes sc's handler, bounded by timeout. Every log line
 // produced while running sc (fetch activity, script println output) is
 // tagged with a "script" attribute for correlation.
-func Run(sc script.Script, proxy *network.ProxyConfig, timeout time.Duration, logger *slog.Logger) Outcome {
+func Run(ctx context.Context, sc script.Script, proxy *network.ProxyConfig, timeout time.Duration, logger *slog.Logger) Outcome {
 	if logger == nil {
 		logger = logging.Discard()
 	}
@@ -36,8 +37,19 @@ func Run(sc script.Script, proxy *network.ProxyConfig, timeout time.Duration, lo
 
 	scLogger.Debug("running script")
 
+	// Bound the probe with a real deadline rather than relying on
+	// vm.Interrupt alone: goja only checks the interrupt flag between
+	// bytecode instructions, so a script blocked inside fetch() is
+	// unreachable by it. Cancelling this context is what actually aborts
+	// the in-flight HTTP request.
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	vm, err := engine.New(func(vm *goja.Runtime) func(goja.FunctionCall) goja.Value {
-		return network.FetchFactory(vm, network.FetchOptions{Proxy: proxy, Logger: scLogger})
+		return network.FetchFactory(vm, network.FetchOptions{Proxy: proxy, Logger: scLogger, Context: ctx})
 	}, scLogger)
 	if err != nil {
 		scLogger.Error("failed to initialize engine", "err", err)
