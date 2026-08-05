@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -13,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/CloudPassenger/miaoprobe/internal/engine"
 	"github.com/CloudPassenger/miaoprobe/internal/exporter"
 	"github.com/CloudPassenger/miaoprobe/internal/network"
 	"github.com/CloudPassenger/miaoprobe/internal/probe"
@@ -74,15 +76,18 @@ func runCheck(scriptsPath, proxyRaw, filterRaw, format string, timeout time.Dura
 }
 
 type checkRow struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Regions    []string `json:"regions,omitempty"`
-	Tags       []string `json:"tags,omitempty"`
-	Text       string   `json:"text,omitempty"`
-	Background string   `json:"background,omitempty"`
-	Status     string   `json:"status"`
-	DurationMs int64    `json:"durationMs"`
-	Error      string   `json:"error,omitempty"`
+	ID         string              `json:"id"`
+	Name       string              `json:"name"`
+	Regions    []string            `json:"regions,omitempty"`
+	Tags       []string            `json:"tags,omitempty"`
+	Text       string              `json:"text,omitempty"`
+	Background string              `json:"background,omitempty"`
+	Status     string              `json:"status"`
+	Region     string              `json:"region,omitempty"`
+	Message    string              `json:"message,omitempty"`
+	Extra      []engine.ExtraField `json:"extra,omitempty"`
+	DurationMs int64               `json:"durationMs"`
+	Error      string              `json:"error,omitempty"`
 }
 
 func toRow(o probe.Outcome) checkRow {
@@ -93,6 +98,9 @@ func toRow(o probe.Outcome) checkRow {
 		Tags:       o.Script.Tags,
 		Text:       o.Result.Text,
 		Background: o.Result.Background,
+		Region:     o.Result.Region,
+		Message:    o.Result.Message,
+		Extra:      o.Result.Extra,
 		DurationMs: o.Duration.Milliseconds(),
 	}
 	if o.Err != nil {
@@ -100,8 +108,42 @@ func toRow(o probe.Outcome) checkRow {
 		row.Error = o.Err.Error()
 		return row
 	}
-	row.Status = exporter.ClassifyColor(o.Result.Background).Label
+	row.Status = exporter.Classify(o.Result.Status, o.Result.Background).Label
+	row.Error = o.Result.Error
 	return row
+}
+
+// detailsLine renders row's Region/Message/Extra as a single fixed-format
+// "label: value" line for the CLI table, where JSON output keeps them as
+// separate structured fields instead. Returns "" when there is nothing to
+// show.
+func detailsLine(row checkRow) string {
+	var parts []string
+	if row.Region != "" {
+		parts = append(parts, "region: "+row.Region)
+	}
+	if row.Message != "" {
+		parts = append(parts, row.Message)
+	}
+	if extra := formatExtra(row.Extra); extra != "" {
+		parts = append(parts, extra)
+	}
+	return strings.Join(parts, " | ")
+}
+
+// formatExtra renders a script's extra fields as "label: value[unit]"
+// pairs, falling back to Key when Label is unset.
+func formatExtra(fields []engine.ExtraField) string {
+	parts := make([]string, 0, len(fields))
+	for _, f := range fields {
+		label := f.Label
+		if label == "" {
+			label = f.Key
+		}
+		val := fmt.Sprintf("%v%s", f.Value, f.Unit)
+		parts = append(parts, label+": "+val)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func printJSON(outcomes []probe.Outcome) error {
@@ -128,7 +170,15 @@ func printTable(outcomes []probe.Outcome) error {
 		if colorsEnabled {
 			status = statusColor(row.Status).Sprint(row.Status)
 		}
-		t.AppendRow(table.Row{row.ID, row.Name, status, row.Text, o.Duration.Round(time.Millisecond), row.Error})
+		cellText := row.Text
+		if d := detailsLine(row); d != "" {
+			d = "\u2514 " + d
+			if colorsEnabled {
+				d = text.FgHiBlack.Sprint(d)
+			}
+			cellText += "\n" + d
+		}
+		t.AppendRow(table.Row{row.ID, row.Name, status, cellText, o.Duration.Round(time.Millisecond), row.Error})
 	}
 
 	t.Render()

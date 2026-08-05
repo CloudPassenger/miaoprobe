@@ -49,7 +49,7 @@ func Run(sc script.Script, proxy *network.ProxyConfig, timeout time.Duration, lo
 	if err != nil {
 		scLogger.Error("script execution failed", "duration", duration, "err", err)
 	} else {
-		scLogger.Debug("script finished", "duration", duration, "background", res.Background)
+		scLogger.Debug("script finished", "duration", duration, "status", res.Status, "background", res.Background, "region", res.Region)
 	}
 	return Outcome{Script: sc, Result: res, Err: err, Duration: duration}
 }

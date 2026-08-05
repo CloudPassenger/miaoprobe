@@ -43,3 +43,31 @@ func ClassifyColor(rgb string) ColorStatus {
 	}
 	return ColorStatus{Value: -1, Label: "unknown", Recognized: false}
 }
+
+// statusValues maps a script's explicit `status` string to a ColorStatus,
+// mirroring colorValues' semantics for scripts that report status directly
+// instead of (or in addition to) a background color.
+var statusValues = map[string]ColorStatus{
+	"unlocked": {Value: 1, Label: "unlocked", Recognized: true},
+	"failed":   {Value: 0, Label: "failed", Recognized: true},
+	"warning":  {Value: 0.5, Label: "warning", Recognized: true},
+	"unknown":  {Value: -1, Label: "unknown", Recognized: true},
+	"na":       {Label: "n/a", Skip: true, Recognized: true},
+	"n/a":      {Label: "n/a", Skip: true, Recognized: true},
+}
+
+// Classify resolves a script result's status, preferring the explicit
+// `status` string (engine.Result.Status) when the script sets one and
+// falling back to background-color classification (ClassifyColor) for
+// scripts that only follow the original miaospeed-scripts {text,
+// background} contract.
+func Classify(status, background string) ColorStatus {
+	norm := strings.ToLower(strings.TrimSpace(status))
+	if norm == "" {
+		return ClassifyColor(background)
+	}
+	if cs, ok := statusValues[norm]; ok {
+		return cs
+	}
+	return ColorStatus{Value: -1, Label: "unknown", Recognized: false}
+}

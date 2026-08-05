@@ -85,12 +85,12 @@ func (p *Poller) pollOnce() {
 			continue
 		}
 
-		cs := ClassifyColor(outcome.Result.Background)
+		cs := Classify(outcome.Result.Status, outcome.Result.Background)
 		if cs.Skip {
 			continue
 		}
 		if !cs.Recognized {
-			logger.Warn("unrecognized background color, exporting status -1", "script", sc.ID, "background", outcome.Result.Background)
+			logger.Warn("unrecognized status/background, exporting status -1", "script", sc.ID, "status", outcome.Result.Status, "background", outcome.Result.Background)
 		}
 
 		p.Metrics.UnlockStatus.WithLabelValues(sc.ID, sc.Name, strings.Join(sc.Regions, ","), strings.Join(sc.Tags, ",")).Set(cs.Value)

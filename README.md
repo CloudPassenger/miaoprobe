@@ -75,11 +75,12 @@ go build -o miaoprobe ./cmd/miaoprobe
 
 Exposed metrics:
 
-- `miaoprobe_unlock_status{id,name,region,tags}` — gauge, mapped from the
-  script's `background` RGB result per `miaospeed-scripts/consts/colors.ts`:
+- `miaoprobe_unlock_status{id,name,region,tags}` — gauge, taken from the
+  script's explicit `status` field when set, otherwise mapped from the
+  `background` RGB result per `miaospeed-scripts/consts/colors.ts`:
   `1` unlocked, `0` failed, `0.5` warning, `-1` unknown. Scripts whose result
-  is "N/A" (`142,140,142`) are skipped (no series emitted) rather than
-  reported as any numeric status.
+  is "N/A" (`status: "na"` or background `142,140,142`) are skipped (no
+  series emitted) rather than reported as any numeric status.
 - `miaoprobe_check_duration_seconds{id}` — gauge, wall time of the last run.
 - `miaoprobe_check_errors_total{id}` — counter, incremented when a script
   *fails to execute* (host API error, script exception, or timeout) — not
@@ -151,6 +152,25 @@ host API contract holds (no host-API incompatibility errors; `handler()`
 results parse into `{text, background}`). It does not assert the business
 correctness of unlock results, since that depends on the network the test
 happens to run on.
+
+## Extended result fields
+
+Beyond the original `miaospeed-scripts` `{text, background}` contract, a
+handler may optionally return these miaoprobe-specific fields for richer
+display; scripts that only set `text`/`background` are unaffected:
+
+- `status` (string): `"unlocked" | "failed" | "warning" | "unknown" | "na"`.
+  When present, this drives the `STATUS` column/`miaoprobe_unlock_status`
+  value directly instead of reverse-mapping `background`'s RGB triplet.
+- `region` (string): dynamically detected region (e.g. `"US"`), distinct
+  from the script's static `regions` config in `index.json`.
+- `message` (string): a longer human-readable detail shown under `text`.
+- `error` (string): a business-level failure reason (e.g. "connection
+  timed out"), shown in the `ERROR` column/field alongside (not replacing)
+  Go-level execution errors.
+- `extra` (array of `{key, label, value, type, unit}`): free-form
+  additional metrics (e.g. an IP quality score), rendered as `label: value`
+  in the CLI table and kept fully structured in `--format json`.
 
 ```sh
 make compat-test

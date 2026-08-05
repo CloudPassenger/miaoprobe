@@ -67,10 +67,30 @@ func printFunc(logger *slog.Logger) func(goja.FunctionCall) goja.Value {
 	}
 }
 
-// Result is the parsed return value of a script's handler function.
+// ExtraField is one entry of a script result's optional `extra` list: a
+// display-ready key/value pair carrying its own label, type hint and unit so
+// non-JSON renderers (the CLI table) can format it without guessing.
+type ExtraField struct {
+	Key   string      `json:"key"`
+	Label string      `json:"label,omitempty"`
+	Value interface{} `json:"value"`
+	Type  string      `json:"type,omitempty"` // "string" (default), "number", "percent", "bool"
+	Unit  string      `json:"unit,omitempty"`
+}
+
+// Result is the parsed return value of a script's handler function. Text and
+// Background are the original miaospeed-scripts contract; Status, Region,
+// Message, Error and Extra are miaoprobe-specific additions that a script
+// may optionally return alongside them for richer display without breaking
+// scripts that only set {text, background}.
 type Result struct {
 	Text       string
 	Background string
+	Status     string // "unlocked" | "failed" | "warning" | "unknown" | "na"; falls back to Background classification when empty
+	Region     string // dynamically detected region, e.g. "US" (distinct from the script's static Regions config)
+	Message    string // human-readable detail shown alongside Text
+	Error      string // business-level error description (distinct from a Go-level execution error)
+	Extra      []ExtraField
 }
 
 // ErrNoHandler is returned when a script exposes neither module.exports nor
@@ -79,8 +99,9 @@ var ErrNoHandler = errors.New("script does not export a handler function (expect
 
 // RunScript executes the script source in vm, resolves its handler
 // (module.exports, falling back to the global `handler`), invokes it, and
-// parses the resulting {text, background} object. Both the top-level script
-// evaluation and the handler call are bounded by timeout.
+// parses the resulting {text, background, status, region, message, error,
+// extra} object (all fields but text/background are optional). Both the
+// top-level script evaluation and the handler call are bounded by timeout.
 func RunScript(vm *goja.Runtime, source string, timeout time.Duration) (Result, error) {
 	if _, err := RunWithTimeout(vm, timeout, func() (goja.Value, error) {
 		return vm.RunString(source)
@@ -125,9 +146,55 @@ func parseResult(vm *goja.Runtime, v goja.Value) (Result, error) {
 	if !ok {
 		return Result{}, errors.New("handler result is not an object")
 	}
-	text, _ := obj.Get("text").Export().(string)
-	background, _ := obj.Get("background").Export().(string)
-	return Result{Text: text, Background: background}, nil
+	return Result{
+		Text:       getString(obj, "text"),
+		Background: getString(obj, "background"),
+		Status:     getString(obj, "status"),
+		Region:     getString(obj, "region"),
+		Message:    getString(obj, "message"),
+		Error:      getString(obj, "error"),
+		Extra:      parseExtra(obj.Get("extra")),
+	}, nil
+}
+
+// getString reads obj[name] as a string, returning "" if the property is
+// absent, null, undefined, or not a string. obj.Get returns a literal nil
+// (not goja.Undefined()) for missing properties, so nil must be checked
+// before calling Export.
+func getString(obj *goja.Object, name string) string {
+	v := obj.Get(name)
+	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+		return ""
+	}
+	s, _ := v.Export().(string)
+	return s
+}
+
+// parseExtra converts a script's optional `extra` array (list of
+// {key, label, value, type, unit} objects) into []ExtraField. Malformed or
+// absent input yields nil rather than an error, since extra is always
+// optional.
+func parseExtra(v goja.Value) []ExtraField {
+	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+		return nil
+	}
+	items, ok := v.Export().([]interface{})
+	if !ok {
+		return nil
+	}
+	fields := make([]ExtraField, 0, len(items))
+	for _, item := range items {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		key, _ := m["key"].(string)
+		label, _ := m["label"].(string)
+		typ, _ := m["type"].(string)
+		unit, _ := m["unit"].(string)
+		fields = append(fields, ExtraField{Key: key, Label: label, Value: m["value"], Type: typ, Unit: unit})
+	}
+	return fields
 }
 
 // RunWithTimeout runs fn while enforcing timeout via vm.Interrupt; a
