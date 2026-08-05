@@ -44,7 +44,7 @@ func newListCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&scriptsPath, "scripts", "", "path to a .js file or a directory containing index.json (defaults to this build's embedded miaospeed-scripts, if any)")
 	cmd.Flags().StringVar(&filterRaw, "filter", "", `script selection, e.g. "category:media,ai;region:hk,us;id:netflix;mode:exclude"; unlike check/serve, list ignores any filter from config file/environment unless passed here`)
-	cmd.Flags().StringVar(&format, "format", "table", "output format: table or json")
+	cmd.Flags().StringVar(&format, "output.format", "table", "output format: table or json")
 
 	return cmd
 }

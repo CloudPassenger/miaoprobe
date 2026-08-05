@@ -17,9 +17,9 @@ func newTestCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "test", RunE: func(*cobra.Command, []string) error { return nil }}
 	cmd.Flags().String("config", "", "")
 	cmd.Flags().String("scripts", "", "")
-	cmd.Flags().String("log-level", "info", "")
-	cmd.Flags().Duration("timeout", 30*time.Second, "")
-	cmd.Flags().Bool("otel-insecure", false, "")
+	cmd.Flags().String("log.level", "info", "")
+	cmd.Flags().Duration("probe.timeout", 30*time.Second, "")
+	cmd.Flags().Bool("otel.insecure", false, "")
 	cmd.Flags().String("filter", "", "")
 	return cmd
 }
@@ -32,8 +32,8 @@ func TestLoadConfigDefaultsUntouched(t *testing.T) {
 	if cmd.Flags().Changed("scripts") {
 		t.Error("scripts should not be marked Changed when nothing set it")
 	}
-	if v, _ := cmd.Flags().GetString("log-level"); v != "info" {
-		t.Errorf("log-level = %q, want default \"info\"", v)
+	if v, _ := cmd.Flags().GetString("log.level"); v != "info" {
+		t.Errorf("log.level = %q, want default \"info\"", v)
 	}
 }
 
@@ -51,25 +51,25 @@ func TestLoadConfigEnvOverridesDefault(t *testing.T) {
 	if !cmd.Flags().Changed("scripts") {
 		t.Error("scripts should be marked Changed when set via env")
 	}
-	if v, _ := cmd.Flags().GetString("log-level"); v != "debug" {
-		t.Errorf("log-level = %q, want debug", v)
+	if v, _ := cmd.Flags().GetString("log.level"); v != "debug" {
+		t.Errorf("log.level = %q, want debug", v)
 	}
 }
 
 func TestLoadConfigFileThenEnvThenFlagPrecedence(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(path, []byte("scripts: /from/file\nlog-level: warn\ntimeout: 10s\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("scripts: /from/file\nlog:\n  level: warn\nprobe:\n  timeout: 10s\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("MP_LOG_LEVEL", "debug") // should win over file, lose to flag
-	t.Setenv("MP_TIMEOUT", "20s")     // should win over file, nothing overrides it
+	t.Setenv("MP_LOG_LEVEL", "debug")   // should win over file, lose to flag
+	t.Setenv("MP_PROBE_TIMEOUT", "20s") // should win over file, nothing overrides it
 
 	cmd := newTestCommand()
 	if err := cmd.Flags().Set("config", path); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmd.Flags().Set("log-level", "error"); err != nil { // explicit flag wins over all
+	if err := cmd.Flags().Set("log.level", "error"); err != nil { // explicit flag wins over all
 		t.Fatal(err)
 	}
 
@@ -80,11 +80,11 @@ func TestLoadConfigFileThenEnvThenFlagPrecedence(t *testing.T) {
 	if v, _ := cmd.Flags().GetString("scripts"); v != "/from/file" {
 		t.Errorf("scripts = %q, want /from/file (from config file)", v)
 	}
-	if v, _ := cmd.Flags().GetString("log-level"); v != "error" {
-		t.Errorf("log-level = %q, want error (explicit flag beats env and file)", v)
+	if v, _ := cmd.Flags().GetString("log.level"); v != "error" {
+		t.Errorf("log.level = %q, want error (explicit flag beats env and file)", v)
 	}
-	if v, _ := cmd.Flags().GetDuration("timeout"); v != 20*time.Second {
-		t.Errorf("timeout = %v, want 20s (env beats file)", v)
+	if v, _ := cmd.Flags().GetDuration("probe.timeout"); v != 20*time.Second {
+		t.Errorf("probe.timeout = %v, want 20s (env beats file)", v)
 	}
 }
 
@@ -202,6 +202,75 @@ func TestResolveFilterSpecDisallowConfigEnv(t *testing.T) {
 	}
 	if len(spec.ID) != 1 || spec.ID[0] != "netflix" {
 		t.Errorf("id = %+v, want [netflix] even with allowConfigEnv=false", spec.ID)
+	}
+}
+
+// Grouped flag names must resolve identically across all three sources:
+// a nested YAML section, an MP_ variable with "_" for the group separator,
+// and the dotted flag itself.
+func TestLoadConfigGroupedKeysAcrossSources(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := "log:\n  level: warn\nprobe:\n  timeout: 11s\notel:\n  insecure: true\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTestCommand()
+	if err := cmd.Flags().Set("config", path); err != nil {
+		t.Fatal(err)
+	}
+	if err := loadConfig(cmd); err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if v, _ := cmd.Flags().GetString("log.level"); v != "warn" {
+		t.Errorf("log.level = %q, want warn (from nested YAML)", v)
+	}
+	if v, _ := cmd.Flags().GetDuration("probe.timeout"); v != 11*time.Second {
+		t.Errorf("probe.timeout = %v, want 11s (from nested YAML)", v)
+	}
+	if v, _ := cmd.Flags().GetBool("otel.insecure"); !v {
+		t.Error("otel.insecure = false, want true (from nested YAML)")
+	}
+
+	// The same keys via MP_ variables, which must win over the file.
+	t.Setenv("MP_LOG_LEVEL", "error")
+	t.Setenv("MP_PROBE_TIMEOUT", "22s")
+	cmd = newTestCommand()
+	if err := cmd.Flags().Set("config", path); err != nil {
+		t.Fatal(err)
+	}
+	if err := loadConfig(cmd); err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if v, _ := cmd.Flags().GetString("log.level"); v != "error" {
+		t.Errorf("log.level = %q, want error (env beats file)", v)
+	}
+	if v, _ := cmd.Flags().GetDuration("probe.timeout"); v != 22*time.Second {
+		t.Errorf("probe.timeout = %v, want 22s (env beats file)", v)
+	}
+}
+
+// A config file may carry keys for flags a given command doesn't define
+// (serve's polling and metrics groups when running check, say). Those must
+// be ignored rather than erroring, since all subcommands share one file.
+func TestLoadConfigIgnoresKeysWithoutFlags(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := "scripts: /x\nmetrics:\n  listen: \":1\"\nprobe:\n  concurrency: 4\n  interval: 9m\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTestCommand() // defines neither metrics.listen nor probe.concurrency
+	if err := cmd.Flags().Set("config", path); err != nil {
+		t.Fatal(err)
+	}
+	if err := loadConfig(cmd); err != nil {
+		t.Fatalf("loadConfig should ignore unknown keys, got: %v", err)
+	}
+	if v, _ := cmd.Flags().GetString("scripts"); v != "/x" {
+		t.Errorf("scripts = %q, want /x", v)
 	}
 }
 

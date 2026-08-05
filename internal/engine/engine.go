@@ -84,7 +84,7 @@ func New(buildFetch FetchBuilder, logger *slog.Logger) (*goja.Runtime, error) {
 // printFunc backs the script-visible println() global (via predefined.js's
 // `const println = print;`), routing script output through the same
 // structured logger as the rest of the engine instead of straight to
-// stdout, so --log-format applies to it too.
+// stdout, so --log.format applies to it too.
 func printFunc(logger *slog.Logger) func(goja.FunctionCall) goja.Value {
 	return func(call goja.FunctionCall) goja.Value {
 		args := make([]interface{}, len(call.Arguments))

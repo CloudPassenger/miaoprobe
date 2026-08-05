@@ -20,7 +20,7 @@ import (
 )
 
 // envPrefix is stripped from environment variable names before they are
-// matched against flags, e.g. MP_LOG_LEVEL -> log-level.
+// matched against flags, e.g. MP_LOG_LEVEL -> log.level.
 const envPrefix = "MP_"
 
 // loadConfig merges, from lowest to highest priority: an optional YAML
@@ -30,10 +30,14 @@ const envPrefix = "MP_"
 // existing *Var-bound option structs and cobra's required-flag validation
 // transparently see values that came from a file or the environment.
 //
-// YAML keys and environment variable names (after stripping the prefix and
-// lowercasing) must match flag names verbatim, e.g. the --otel-endpoint
-// flag is configured as `otel-endpoint: ...` in YAML or MP_OTEL_ENDPOINT
-// in the environment.
+// Flag names are dotted and grouped by concern (log.level, probe.timeout,
+// otel.endpoint, ...), and that grouping is also the config structure: a
+// flag maps onto the same-named nested YAML key, and onto the name
+// upper-cased with "." replaced by "_" in the environment. So --log.level
+// is `log: {level: ...}` in YAML and MP_LOG_LEVEL in the environment.
+//
+// Keys that don't correspond to a flag on cmd are ignored, which is what
+// lets list/check/serve share one config file.
 //
 // Script selection (--filter) is the one exception: it doesn't have a
 // single scalar shape shared across all three sources (YAML uses a nested
@@ -42,7 +46,9 @@ const envPrefix = "MP_"
 // "key:v1,v2;key2:v3" string), so it can't be synced onto the flag by the
 // generic mechanism above. Instead, the file/environment layers are parsed
 // into a script.FilterSpec here and stashed on cmd's context for commands to
-// combine with the flag via resolveFilterSpec.
+// combine with the flag via resolveFilterSpec. Note this also means `filter`
+// must stay a group name and cannot become a scalar key: koanf resolves a
+// name as either a map or a scalar, never both.
 func loadConfig(cmd *cobra.Command) error {
 	path, explicit, err := resolveConfigPath(cmd)
 	if err != nil {
@@ -62,13 +68,12 @@ func loadConfig(cmd *cobra.Command) error {
 	envProvider := env.Provider(".", env.Opt{
 		Prefix: envPrefix,
 		TransformFunc: func(k, v string) (string, any) {
+			// Underscores map onto the "." group separator, so
+			// MP_LOG_LEVEL -> log.level (the --log.level flag) and
+			// MP_FILTER_CATEGORY -> filter.category (a FilterSpec field,
+			// not a flag). Both are handled by the same rule.
 			key := strings.ToLower(strings.TrimPrefix(k, envPrefix))
-			// MP_FILTER_CATEGORY etc. address the nested filter.category
-			// key, not a flag; every other variable maps onto a flag name.
-			if rest, ok := strings.CutPrefix(key, "filter_"); ok {
-				return "filter." + rest, v
-			}
-			return strings.ReplaceAll(key, "_", "-"), v
+			return strings.ReplaceAll(key, "_", "."), v
 		},
 	})
 	if err := k.Load(envProvider, nil); err != nil {

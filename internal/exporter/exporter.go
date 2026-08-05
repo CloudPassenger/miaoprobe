@@ -193,7 +193,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 	// A cycle that outlives its interval means Ticker will drop ticks and
 	// the effective polling rate silently degrades, so make it visible.
 	if p.Interval > 0 && elapsed > p.Interval {
-		logger.Warn("poll cycle exceeded interval; consider raising --concurrency or --interval",
+		logger.Warn("poll cycle exceeded interval; consider raising --probe.concurrency or --probe.interval",
 			"elapsed", elapsed, "interval", p.Interval, "scripts", len(p.Scripts), "concurrency", workers)
 	} else {
 		logger.Debug("poll cycle finished", "elapsed", elapsed, "scripts", len(p.Scripts), "concurrency", workers)

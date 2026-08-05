@@ -58,18 +58,18 @@ func newServeCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&scriptsPath, "scripts", "", "directory containing index.json (defaults to this build's embedded miaospeed-scripts, if any)")
-	cmd.Flags().StringVar(&o.proxyRaw, "proxy", "", "egress proxy: http://host:port or socks5://host:port (empty = direct)")
+	cmd.Flags().StringVar(&o.proxyRaw, "probe.proxy", "", "egress proxy: http://host:port or socks5://host:port (empty = direct)")
 	cmd.Flags().StringVar(&filterRaw, "filter", "", `script selection, e.g. "category:media,ai;region:hk,us;id:netflix;mode:exclude" (see "miaoprobe list" and README.md#configuration)`)
-	cmd.Flags().DurationVar(&o.interval, "interval", 5*time.Minute, "polling interval")
-	cmd.Flags().DurationVar(&o.timeout, "timeout", 30*time.Second, "per-script execution timeout")
-	cmd.Flags().IntVar(&o.concurrency, "concurrency", exporter.DefaultConcurrency, "how many scripts to probe in parallel")
-	cmd.Flags().StringVar(&o.listen, "listen", ":9765", "address to expose /metrics on")
+	cmd.Flags().DurationVar(&o.interval, "probe.interval", 5*time.Minute, "polling interval")
+	cmd.Flags().DurationVar(&o.timeout, "probe.timeout", 30*time.Second, "per-script execution timeout")
+	cmd.Flags().IntVar(&o.concurrency, "probe.concurrency", exporter.DefaultConcurrency, "how many scripts to probe in parallel")
+	cmd.Flags().StringVar(&o.listen, "metrics.listen", ":9765", "address to expose /metrics on")
 
-	cmd.Flags().StringVar(&o.otelEndpoint, "otel-endpoint", "", "OTLP endpoint to push metrics to (e.g. Grafana Cloud's OTLP gateway); empty disables push, honors OTEL_EXPORTER_OTLP_* env vars")
-	cmd.Flags().StringVar(&o.otelProtocol, "otel-protocol", "http/protobuf", "OTLP wire protocol: http/protobuf or grpc")
-	cmd.Flags().StringVar(&o.otelHeadersRaw, "otel-headers", "", "comma-separated key=value headers sent with every OTLP export (e.g. Authorization=Basic <base64>)")
-	cmd.Flags().BoolVar(&o.otelInsecure, "otel-insecure", false, "disable TLS for the OTLP connection (local collectors only)")
-	cmd.Flags().DurationVar(&o.otelInterval, "otel-interval", time.Minute, "how often buffered metrics are pushed to --otel-endpoint")
+	cmd.Flags().StringVar(&o.otelEndpoint, "otel.endpoint", "", "OTLP endpoint to push metrics to (e.g. Grafana Cloud's OTLP gateway); empty disables push, honors OTEL_EXPORTER_OTLP_* env vars")
+	cmd.Flags().StringVar(&o.otelProtocol, "otel.protocol", "http/protobuf", "OTLP wire protocol: http/protobuf or grpc")
+	cmd.Flags().StringVar(&o.otelHeadersRaw, "otel.headers", "", "comma-separated key=value headers sent with every OTLP export (e.g. Authorization=Basic <base64>)")
+	cmd.Flags().BoolVar(&o.otelInsecure, "otel.insecure", false, "disable TLS for the OTLP connection (local collectors only)")
+	cmd.Flags().DurationVar(&o.otelInterval, "otel.interval", time.Minute, "how often buffered metrics are pushed to --otel.endpoint")
 
 	return cmd
 }

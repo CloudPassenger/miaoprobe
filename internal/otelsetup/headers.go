@@ -6,7 +6,7 @@ import (
 )
 
 // ParseHeaders parses a comma-separated "key=value" list, as used by the
-// serve subcommand's --otel-headers flag for OTLP auth (e.g. Grafana
+// serve subcommand's --otel.headers flag for OTLP auth (e.g. Grafana
 // Cloud's "Authorization=Basic <base64>"). An empty string yields a nil map
 // so the OTLP exporter falls back to OTEL_EXPORTER_OTLP_HEADERS.
 func ParseHeaders(raw string) (map[string]string, error) {

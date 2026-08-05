@@ -47,10 +47,10 @@ func newCheckCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&scriptsPath, "scripts", "", "path to a .js file or a directory containing index.json (defaults to this build's embedded miaospeed-scripts, if any)")
-	cmd.Flags().StringVar(&proxyRaw, "proxy", "", "egress proxy: http://host:port or socks5://host:port (empty = direct)")
+	cmd.Flags().StringVar(&proxyRaw, "probe.proxy", "", "egress proxy: http://host:port or socks5://host:port (empty = direct)")
 	cmd.Flags().StringVar(&filterRaw, "filter", "", `script selection, e.g. "category:media,ai;region:hk,us;id:netflix;mode:exclude" (see "miaoprobe list" and README.md#configuration)`)
-	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "per-script execution timeout")
-	cmd.Flags().StringVar(&format, "format", "table", "output format: table or json")
+	cmd.Flags().DurationVar(&timeout, "probe.timeout", 30*time.Second, "per-script execution timeout")
+	cmd.Flags().StringVar(&format, "output.format", "table", "output format: table or json")
 
 	return cmd
 }
