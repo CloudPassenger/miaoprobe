@@ -137,7 +137,6 @@ well as interrupting its JavaScript. A script's own `fetch()` `timeout`
 parameter is additionally clamped to 30s per attempt (with `retry` capped at
 10, as before), so no single script can stall a run indefinitely.
 
-
 ## Serve mode: Prometheus exporter + OpenTelemetry push
 
 ```sh
@@ -165,7 +164,6 @@ Scripts are probed in parallel (`--concurrency`), so a cycle takes roughly
 them. If a cycle still outlives `--interval`, ticks are dropped and the
 effective polling rate silently drops — `serve` logs a warning when this
 happens, and exposes cycle wall time as `miaoprobe_poll_duration_seconds`.
-
 
 `serve` also builds on a single OpenTelemetry `MeterProvider` internally, so
 the same instruments can be read two ways at once: pulled from `/metrics`
@@ -245,16 +243,55 @@ scrape_configs:
       - targets: ["localhost:9765"]
 ```
 
-In Grafana, a simple panel query is:
+A ready-made dashboard and alert rules live in [`dashboards/`](dashboards):
 
-```promql
-miaoprobe_unlock_status{tags=~".*stream.*"}
+| File | What it is |
+|------|------------|
+| `miaoprobe-overview.json` | Grafana dashboard: status grid, history timeline, freshness and poll-cycle health |
+| `miaoprobe-alerts.yaml` | Prometheus/Mimir alert rules |
+| `miaoprobe-alerts-test.yaml` | `promtool` unit tests for those rules |
+
+Import the dashboard via **Dashboards → New → Import → Upload JSON file**,
+then pick your Prometheus data source. It has `Instance`, `Category` and
+`Script` template variables, so one dashboard covers every probe you run.
+
+Load the alert rules into a self-hosted Prometheus with `rule_files:`, or
+into Grafana Cloud with
+[`mimirtool`](https://grafana.com/docs/mimir/latest/manage/tools/mimirtool/):
+
+```sh
+mimirtool rules load dashboards/miaoprobe-alerts.yaml \
+  --address=https://prometheus-prod-xx.grafana.net \
+  --id=<instance-id> --key=<api-token>
 ```
 
-mapped through a value mapping (`1` → green "Unlocked", `0` → red "Failed",
-`0.5` → orange "Warning", `-1` → gray "Unknown") gives a status grid similar
-to MediaUnlockTest's output. Dashboards are not shipped with this project;
-build them against the metrics above.
+Verify them before shipping — the unit tests cover the stale-gauge and
+never-succeeded cases that are easy to get wrong:
+
+```sh
+promtool check rules dashboards/miaoprobe-alerts.yaml
+promtool test rules dashboards/miaoprobe-alerts-test.yaml
+```
+
+The thresholds assume the default `--interval 5m` (staleness fires at three
+missed cycles). If you poll on a different interval, scale them to match.
+
+To build panels of your own, remember that metadata lives on
+`miaoprobe_script_info` rather than on the status gauge, so filtering by
+`region`/`tags` needs the join:
+
+```promql
+(miaoprobe_unlock_status == 0)
+  * on(job, instance, id) group_left(name, region, tags) miaoprobe_script_info
+```
+
+Mapped through a value mapping (`1` → green "Unlocked", `0` → red "Failed",
+`0.5` → orange "Warning", `-1` → gray "Unknown"), this gives a status grid
+similar to MediaUnlockTest's output.
+
+> Note the parentheses around the comparison: `metric == 0 * on(...) other`
+> parses as `metric == (0 * on(...) other)` and is rejected as "vector
+> matching only allowed between instant vectors".
 
 ## Logging
 

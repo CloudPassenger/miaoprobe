@@ -1,0 +1,142 @@
+# Prometheus / Grafana Cloud (Mimir) alerting rules for miaoprobe.
+#
+# Load with a self-hosted Prometheus via `rule_files:`, or upload to Grafana
+# Cloud with:
+#
+#   mimirtool rules load dashboards/miaoprobe-alerts.yaml \
+#     --address=https://prometheus-prod-xx.grafana.net \
+#     --id=<instance-id> --key=<api-token>
+#
+# Validate before shipping:
+#
+#   promtool check rules dashboards/miaoprobe-alerts.yaml
+#
+# Thresholds below assume the default `--interval 5m`. If you run a
+# different interval, scale the staleness windows with it: the rule of
+# thumb is "3 missed cycles".
+#
+# The first three rules ("monitoring health") matter most: they catch the
+# case where miaoprobe itself has stopped producing fresh results. Without
+# them, a frozen `miaoprobe_unlock_status` gauge looks identical to a
+# healthy one.
+
+groups:
+  - name: miaoprobe-monitoring-health
+    interval: 1m
+    rules:
+      # A gauge keeps serving its last value forever, so "no fresh data" is
+      # invisible unless you check the timestamp explicitly.
+      - alert: MiaoprobeCheckStale
+        expr: |
+          time() - miaoprobe_last_success_timestamp_seconds > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "miaoprobe check {{ $labels.id }} is stale"
+          description: >-
+            {{ $labels.id }} has not produced a usable result for
+            {{ $value | humanizeDuration }} (threshold: 3 polling intervals).
+            Its reported unlock status is frozen at the last known value and
+            should not be trusted.
+
+      # A script that has errored on every attempt since startup never gets
+      # a last_success timestamp at all, so MiaoprobeCheckStale can never
+      # fire for it. This catches that blind spot.
+      - alert: MiaoprobeCheckNeverSucceeded
+        expr: |
+          miaoprobe_script_info
+            unless on(job, instance, id) miaoprobe_last_success_timestamp_seconds
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "miaoprobe check {{ $labels.id }} has never succeeded"
+          description: >-
+            {{ $labels.name }} ({{ $labels.id }}) has not produced a single
+            usable result since this miaoprobe process started. The script is
+            likely broken, or its target is permanently unreachable through
+            the configured egress.
+
+      - alert: MiaoprobeDown
+        expr: |
+          up{job=~".*miaoprobe.*"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "miaoprobe is down"
+          description: >-
+            The miaoprobe exporter at {{ $labels.instance }} has been
+            unreachable for 5 minutes. All unlock status data is stale.
+
+  - name: miaoprobe-unlock-status
+    interval: 1m
+    rules:
+      # NOTE: many services legitimately stay blocked for a given egress, so
+      # firing on every `== 0` is a fast route to alert fatigue. Scope this
+      # to the services you actually care about, e.g.:
+      #   miaoprobe_unlock_status{id=~"netflix|disney"} == 0
+      - alert: MiaoprobeUnlockFailed
+        expr: |
+          (miaoprobe_unlock_status == 0)
+            * on(job, instance, id) group_left(name, region, tags)
+              miaoprobe_script_info
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.name }} is not unlocked"
+          description: >-
+            {{ $labels.name }} ({{ $labels.id }}, region {{ $labels.region }})
+            has reported "failed" for 30 minutes.
+
+      # -1 means indeterminate: the check errored, timed out, or returned
+      # n/a. Distinct from a confirmed "failed" result — this is a problem
+      # with the check, not necessarily with the service.
+      - alert: MiaoprobeStatusUnknown
+        expr: |
+          (miaoprobe_unlock_status == -1)
+            * on(job, instance, id) group_left(name, region, tags)
+              miaoprobe_script_info
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "{{ $labels.name }} status is indeterminate"
+          description: >-
+            {{ $labels.name }} ({{ $labels.id }}) has reported unknown for 30
+            minutes: the check is erroring, timing out, or returning n/a
+            rather than a usable status.
+
+  - name: miaoprobe-runtime
+    interval: 1m
+    rules:
+      - alert: MiaoprobeScriptErrorRateHigh
+        expr: |
+          sum by (job, instance, id) (rate(miaoprobe_check_errors_total[15m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "miaoprobe script {{ $labels.id }} is erroring continuously"
+          description: >-
+            {{ $labels.id }} has failed to execute on every attempt for 15
+            minutes (script exception, host API error, or timeout).
+
+      # A cycle that outlives the polling interval means ticks are dropped
+      # and the effective polling rate silently degrades. 240s = 80% of the
+      # default 5m interval; scale this with your own --interval.
+      - alert: MiaoprobePollCycleSlow
+        expr: |
+          miaoprobe_poll_duration_seconds > 240
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "miaoprobe poll cycle is approaching the polling interval"
+          description: >-
+            A full poll cycle took {{ $value | humanizeDuration }}, close to
+            or beyond the configured --interval. Ticks will be dropped and
+            the effective polling rate will degrade. Raise --concurrency, or
+            raise --interval.

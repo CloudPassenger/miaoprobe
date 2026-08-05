@@ -1,0 +1,186 @@
+# promtool unit tests for dashboards/miaoprobe-alerts.yaml.
+#
+#   promtool test rules dashboards/miaoprobe-alerts-test.yaml
+#
+# These cover the cases that cannot be checked by hand because they depend
+# on simulated time: a gauge going stale, and a script that never succeeds.
+# Both are the failure modes that a frozen-gauge exporter hides.
+
+rule_files:
+  - miaoprobe-alerts.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # A healthy script reports fresh results every 5m. Nothing should fire.
+  - interval: 1m
+    name: healthy script stays quiet
+    input_series:
+      - series: 'miaoprobe_unlock_status{job="miaoprobe", instance="host:9765", id="netflix"}'
+        values: "1+0x60"
+      - series: 'miaoprobe_script_info{job="miaoprobe", instance="host:9765", id="netflix", name="Netflix", category="media", region="us", tags="media"}'
+        values: "1+0x60"
+      # Timestamps advance with wall clock, so staleness stays near zero.
+      - series: 'miaoprobe_last_success_timestamp_seconds{job="miaoprobe", instance="host:9765", id="netflix"}'
+        values: "0+60x60"
+      - series: 'up{job="miaoprobe", instance="host:9765"}'
+        values: "1+0x60"
+    alert_rule_test:
+      - eval_time: 50m
+        alertname: MiaoprobeCheckStale
+        exp_alerts: []
+      - eval_time: 50m
+        alertname: MiaoprobeUnlockFailed
+        exp_alerts: []
+      - eval_time: 50m
+        alertname: MiaoprobeCheckNeverSucceeded
+        exp_alerts: []
+
+  # The regression this exporter had: the status gauge keeps reporting
+  # "unlocked" while the underlying check has stopped succeeding. The status
+  # value alone cannot reveal this — only the timestamp can.
+  - interval: 1m
+    name: frozen gauge is caught by staleness
+    input_series:
+      # Still claims "unlocked" for the whole window.
+      - series: 'miaoprobe_unlock_status{job="miaoprobe", instance="host:9765", id="netflix"}'
+        values: "1+0x60"
+      - series: 'miaoprobe_script_info{job="miaoprobe", instance="host:9765", id="netflix", name="Netflix", category="media", region="us", tags="media"}'
+        values: "1+0x60"
+      # Last success is pinned at t=0 and never advances.
+      - series: 'miaoprobe_last_success_timestamp_seconds{job="miaoprobe", instance="host:9765", id="netflix"}'
+        values: "0+0x60"
+    alert_rule_test:
+      # At 10m, staleness is 600s: under the 900s threshold.
+      - eval_time: 10m
+        alertname: MiaoprobeCheckStale
+        exp_alerts: []
+      # Crosses 900s at 15m, then needs `for: 5m` to hold.
+      - eval_time: 16m
+        alertname: MiaoprobeCheckStale
+        exp_alerts: []
+      - eval_time: 21m
+        alertname: MiaoprobeCheckStale
+        exp_alerts:
+          - exp_labels:
+              alertname: MiaoprobeCheckStale
+              severity: warning
+              job: miaoprobe
+              instance: host:9765
+              id: netflix
+            exp_annotations:
+              summary: "miaoprobe check netflix is stale"
+              description: "netflix has not produced a usable result for 21m 0s (threshold: 3 polling intervals). Its reported unlock status is frozen at the last known value and should not be trusted."
+
+  # A script erroring since startup never gets a last_success series, so the
+  # staleness rule above can never fire for it. This is the blind spot that
+  # MiaoprobeCheckNeverSucceeded exists to cover.
+  - interval: 1m
+    name: never-succeeded script is caught
+    input_series:
+      - series: 'miaoprobe_unlock_status{job="miaoprobe", instance="host:9765", id="gemini"}'
+        values: "-1+0x60"
+      - series: 'miaoprobe_script_info{job="miaoprobe", instance="host:9765", id="gemini", name="Gemini", category="ai", region="us", tags="ai"}'
+        values: "1+0x60"
+      - series: 'miaoprobe_check_errors_total{job="miaoprobe", instance="host:9765", id="gemini"}'
+        values: "0+1x60"
+      # Deliberately no miaoprobe_last_success_timestamp_seconds series.
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: MiaoprobeCheckNeverSucceeded
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: MiaoprobeCheckNeverSucceeded
+        exp_alerts:
+          - exp_labels:
+              alertname: MiaoprobeCheckNeverSucceeded
+              severity: warning
+              job: miaoprobe
+              instance: host:9765
+              id: gemini
+              name: Gemini
+              category: ai
+              region: us
+              tags: ai
+            exp_annotations:
+              summary: "miaoprobe check gemini has never succeeded"
+              description: "Gemini (gemini) has not produced a single usable result since this miaoprobe process started. The script is likely broken, or its target is permanently unreachable through the configured egress."
+      # Staleness cannot fire here: there is no timestamp series at all.
+      - eval_time: 50m
+        alertname: MiaoprobeCheckStale
+        exp_alerts: []
+
+  # A confirmed block must carry the metadata labels from the join, so
+  # notifications can name the service rather than just its id.
+  - interval: 1m
+    name: failed unlock carries joined metadata
+    input_series:
+      - series: 'miaoprobe_unlock_status{job="miaoprobe", instance="host:9765", id="disney"}'
+        values: "0+0x60"
+      - series: 'miaoprobe_script_info{job="miaoprobe", instance="host:9765", id="disney", name="Disney+", category="media", region="us", tags="media,stream"}'
+        values: "1+0x60"
+      - series: 'miaoprobe_last_success_timestamp_seconds{job="miaoprobe", instance="host:9765", id="disney"}'
+        values: "0+60x60"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: MiaoprobeUnlockFailed
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: MiaoprobeUnlockFailed
+        exp_alerts:
+          - exp_labels:
+              alertname: MiaoprobeUnlockFailed
+              severity: warning
+              job: miaoprobe
+              instance: host:9765
+              id: disney
+              name: Disney+
+              region: us
+              tags: media,stream
+            exp_annotations:
+              summary: "Disney+ is not unlocked"
+              description: "Disney+ (disney, region us) has reported \"failed\" for 30 minutes."
+
+  # A slow poll cycle silently degrades the effective polling rate.
+  - interval: 1m
+    name: slow poll cycle is caught
+    input_series:
+      - series: 'miaoprobe_poll_duration_seconds{job="miaoprobe", instance="host:9765"}'
+        values: "280+0x60"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: MiaoprobePollCycleSlow
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: MiaoprobePollCycleSlow
+        exp_alerts:
+          - exp_labels:
+              alertname: MiaoprobePollCycleSlow
+              severity: warning
+              job: miaoprobe
+              instance: host:9765
+            exp_annotations:
+              summary: "miaoprobe poll cycle is approaching the polling interval"
+              description: "A full poll cycle took 4m 40s, close to or beyond the configured --interval. Ticks will be dropped and the effective polling rate will degrade. Raise --concurrency, or raise --interval."
+
+  # The exporter being unreachable must be critical: every status is stale.
+  - interval: 1m
+    name: exporter down
+    input_series:
+      - series: 'up{job="miaoprobe", instance="host:9765"}'
+        values: "1 1 1 0+0x30"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: MiaoprobeDown
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: MiaoprobeDown
+        exp_alerts:
+          - exp_labels:
+              alertname: MiaoprobeDown
+              severity: critical
+              job: miaoprobe
+              instance: host:9765
+            exp_annotations:
+              summary: "miaoprobe is down"
+              description: "The miaoprobe exporter at host:9765 has been unreachable for 5 minutes. All unlock status data is stale."
