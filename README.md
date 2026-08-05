@@ -372,3 +372,8 @@ internal/compat/   compatibility test against a miaospeed-scripts build
 - No cron scheduling — `serve` only supports a fixed `--interval`.
 - No remote script repository fetching or hot reload; point `--scripts` at a
   local checkout and re-run to pick up updates.
+
+## License
+
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE)
+(AGPL-3.0-only). The full license text is in the [LICENSE](LICENSE) file.
