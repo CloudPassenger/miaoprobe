@@ -38,6 +38,54 @@ func TestParseHeaders(t *testing.T) {
 	}
 }
 
+func gatherNames(t *testing.T, p *Provider) map[string]bool {
+	t.Helper()
+	mfs, err := p.Registry.Gather()
+	if err != nil {
+		t.Fatalf("Gather: %v", err)
+	}
+	names := make(map[string]bool, len(mfs))
+	for _, mf := range mfs {
+		names[mf.GetName()] = true
+	}
+	return names
+}
+
+func TestRuntimeMetricsOptIn(t *testing.T) {
+	off, err := New(context.Background(), Config{ServiceName: "test"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer off.Shutdown(context.Background())
+
+	for name := range gatherNames(t, off) {
+		if strings.HasPrefix(name, "go_") || strings.HasPrefix(name, "process_") {
+			t.Errorf("runtime metric %q exported with RuntimeMetrics disabled", name)
+		}
+	}
+
+	on, err := New(context.Background(), Config{ServiceName: "test", RuntimeMetrics: true})
+	if err != nil {
+		t.Fatalf("New with runtime metrics: %v", err)
+	}
+	defer on.Shutdown(context.Background())
+
+	names := gatherNames(t, on)
+	// From OTel's runtime instrumentation: these also reach an OTLP reader.
+	for _, want := range []string{"go_goroutine_count", "go_memory_used_bytes"} {
+		if !names[want] {
+			t.Errorf("expected OTel runtime metric %q", want)
+		}
+	}
+	// From the Prometheus process collector: /metrics only, but the only
+	// source of the fd and RSS counters that reveal leaks.
+	for _, want := range []string{"process_open_fds", "process_resident_memory_bytes"} {
+		if !names[want] {
+			t.Errorf("expected process metric %q", want)
+		}
+	}
+}
+
 func TestNewWithoutOTLPServesPrometheus(t *testing.T) {
 	p, err := New(context.Background(), Config{ServiceName: "test"})
 	if err != nil {

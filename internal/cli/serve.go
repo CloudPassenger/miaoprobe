@@ -26,6 +26,8 @@ type serveOpts struct {
 	scripts           []script.Script
 	filterSpec        script.FilterSpec
 
+	runtimeMetrics bool
+
 	otelEndpoint, otelProtocol, otelHeadersRaw string
 	otelInsecure                               bool
 	otelInterval                               time.Duration
@@ -64,6 +66,7 @@ func newServeCommand() *cobra.Command {
 	cmd.Flags().DurationVar(&o.timeout, "probe.timeout", 30*time.Second, "per-script execution timeout")
 	cmd.Flags().IntVar(&o.concurrency, "probe.concurrency", exporter.DefaultConcurrency, "how many scripts to probe in parallel")
 	cmd.Flags().StringVar(&o.listen, "metrics.listen", ":9765", "address to expose /metrics on")
+	cmd.Flags().BoolVar(&o.runtimeMetrics, "metrics.runtime", true, "also export Go runtime and process metrics (goroutines, heap, GC, open fds, resident memory) for diagnosing miaoprobe itself")
 
 	cmd.Flags().StringVar(&o.otelEndpoint, "otel.endpoint", "", "OTLP endpoint to push metrics to (e.g. Grafana Cloud's OTLP gateway); empty disables push, honors OTEL_EXPORTER_OTLP_* env vars")
 	cmd.Flags().StringVar(&o.otelProtocol, "otel.protocol", "http/protobuf", "OTLP wire protocol: http/protobuf or grpc")
@@ -97,6 +100,8 @@ func runServe(o serveOpts, logger *slog.Logger) error {
 		OTLPHeaders:  otelHeaders,
 		OTLPInsecure: o.otelInsecure,
 		OTLPInterval: o.otelInterval,
+
+		RuntimeMetrics: o.runtimeMetrics,
 	})
 	if err != nil {
 		return err

@@ -78,6 +78,10 @@ metrics:
   # address /metrics is served on
   listen: ":9765"
 
+  # also export Go runtime and process metrics (goroutines, heap, GC,
+  # open fds, resident memory) for diagnosing miaoprobe itself
+  runtime: true
+
 otel:
   # OTLP endpoint to push metrics to (e.g. Grafana Cloud's OTLP gateway);
   # empty disables push, falls back to OTEL_EXPORTER_OTLP_* env vars

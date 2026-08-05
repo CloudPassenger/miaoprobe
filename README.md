@@ -158,6 +158,7 @@ parameter is additionally clamped to 30s per attempt (with `retry` capped at
 | `--probe.timeout`  | `30s`   | per-script execution timeout                    |
 | `--probe.concurrency` | `8`  | how many scripts to probe in parallel           |
 | `--metrics.listen`   | `:9765` | address `/metrics` is served on                 |
+| `--metrics.runtime` | `true` | also export Go runtime/process metrics (`go_*`, `process_*`) for diagnosing miaoprobe itself |
 
 Scripts are probed in parallel (`--probe.concurrency`), so a cycle takes roughly
 `ceil(scripts / concurrency)` slow probes rather than the sum of all of
@@ -232,6 +233,18 @@ Exposed metrics:
 - `miaoprobe_check_errors_total{id}` — counter, incremented when a script
   *fails to execute* (host API error, script exception, or timeout) — not
   when it reports a business "failed"/"unlock" result.
+
+With `--metrics.runtime` (on by default), Go runtime and process telemetry
+is exported alongside these: `go_goroutine_count`, `go_memory_used_bytes`,
+`go_memory_gc_goal_bytes` and friends via OpenTelemetry's runtime
+instrumentation (so they reach the OTLP push too), plus
+`process_open_fds`, `process_resident_memory_bytes` and
+`process_cpu_seconds_total` from Prometheus' process collector
+(`/metrics` only, since it reads `/proc` directly).
+
+These describe miaoprobe itself rather than any unlock status, but they are
+what reveals a slow leak over a long deployment: a steadily climbing
+`process_open_fds` or `go_goroutine_count` is the signal to look for.
 
 ### Prometheus / Grafana
 

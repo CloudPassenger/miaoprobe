@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	runtimemetrics "go.opentelemetry.io/contrib/instrumentation/runtime"
 	otlpmetricgrpc "go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	otlpmetrichttp "go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
@@ -35,6 +37,13 @@ type Config struct {
 	OTLPInsecure bool
 	// OTLPInterval controls how often buffered metrics are pushed.
 	OTLPInterval time.Duration
+
+	// RuntimeMetrics exports Go runtime and process telemetry alongside the
+	// miaoprobe_* instruments: goroutine count, heap use, GC activity, and
+	// (on /metrics only) open file descriptors, resident memory and CPU
+	// time. Intended for diagnosing the exporter itself over a long
+	// deployment rather than for monitoring unlock status.
+	RuntimeMetrics bool
 }
 
 // Provider bundles the MeterProvider with the Prometheus registry backing
@@ -77,8 +86,28 @@ func New(ctx context.Context, cfg Config) (*Provider, error) {
 		opts = append(opts, metric.WithReader(reader))
 	}
 
+	mp := metric.NewMeterProvider(opts...)
+
+	if cfg.RuntimeMetrics {
+		// Two complementary sources, because neither covers both transports:
+		//
+		//   - OTel's runtime instrumentation creates instruments on the
+		//     MeterProvider, so goroutine/heap/GC metrics reach every reader,
+		//     including the OTLP push.
+		//   - Prometheus' process collector reads /proc and registers on the
+		//     Registry only, so it is /metrics-only, but it is the only
+		//     source of open-fd, resident-memory and CPU-time counters --
+		//     precisely the signals that reveal descriptor or memory leaks.
+		if err := runtimemetrics.Start(runtimemetrics.WithMeterProvider(mp)); err != nil {
+			return nil, fmt.Errorf("otelsetup: start runtime metrics: %w", err)
+		}
+		if err := reg.Register(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})); err != nil {
+			return nil, fmt.Errorf("otelsetup: register process collector: %w", err)
+		}
+	}
+
 	return &Provider{
-		MeterProvider: metric.NewMeterProvider(opts...),
+		MeterProvider: mp,
 		Registry:      reg,
 	}, nil
 }
