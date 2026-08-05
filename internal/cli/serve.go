@@ -20,9 +20,10 @@ import (
 
 // serveOpts holds the flags for the serve subcommand.
 type serveOpts struct {
-	scriptsPath, proxyRaw, listen string
-	interval, timeout             time.Duration
-	filterSpec                    script.FilterSpec
+	proxyRaw, listen  string
+	interval, timeout time.Duration
+	scripts           []script.Script
+	filterSpec        script.FilterSpec
 
 	otelEndpoint, otelProtocol, otelHeadersRaw string
 	otelInsecure                               bool
@@ -31,7 +32,7 @@ type serveOpts struct {
 
 func newServeCommand() *cobra.Command {
 	var o serveOpts
-	var filterRaw string
+	var scriptsPath, filterRaw string
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -45,12 +46,17 @@ func newServeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			scripts, err := resolveScripts(cmd, scriptsPath, logger)
+			if err != nil {
+				return err
+			}
+			o.scripts = scripts
 			o.filterSpec = filterSpec
 			return runServe(o, logger)
 		},
 	}
 
-	cmd.Flags().StringVar(&o.scriptsPath, "scripts", "", "directory containing index.json (required)")
+	cmd.Flags().StringVar(&scriptsPath, "scripts", "", "directory containing index.json (defaults to this build's embedded miaospeed-scripts, if any)")
 	cmd.Flags().StringVar(&o.proxyRaw, "proxy", "", "egress proxy: http://host:port or socks5://host:port (empty = direct)")
 	cmd.Flags().StringVar(&filterRaw, "filter", "", `script selection, e.g. "category:media,ai;region:hk,us;id:netflix;mode:exclude" (see "miaoprobe list" and README.md#configuration)`)
 	cmd.Flags().DurationVar(&o.interval, "interval", 5*time.Minute, "polling interval")
@@ -62,7 +68,6 @@ func newServeCommand() *cobra.Command {
 	cmd.Flags().StringVar(&o.otelHeadersRaw, "otel-headers", "", "comma-separated key=value headers sent with every OTLP export (e.g. Authorization=Basic <base64>)")
 	cmd.Flags().BoolVar(&o.otelInsecure, "otel-insecure", false, "disable TLS for the OTLP connection (local collectors only)")
 	cmd.Flags().DurationVar(&o.otelInterval, "otel-interval", time.Minute, "how often buffered metrics are pushed to --otel-endpoint")
-	_ = cmd.MarkFlagRequired("scripts")
 
 	return cmd
 }
@@ -77,12 +82,8 @@ func runServe(o serveOpts, logger *slog.Logger) error {
 		return err
 	}
 
-	scripts, err := script.Load(o.scriptsPath)
-	if err != nil {
-		return err
-	}
-	scripts = script.Select(scripts, o.filterSpec)
-	logger.Info("loaded scripts", "count", len(scripts), "path", o.scriptsPath)
+	scripts := script.Select(o.scripts, o.filterSpec)
+	logger.Info("loaded scripts", "count", len(scripts))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

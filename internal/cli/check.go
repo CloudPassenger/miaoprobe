@@ -37,30 +37,29 @@ func newCheckCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runCheck(scriptsPath, proxyRaw, filterSpec, format, timeout, logger)
+			scripts, err := resolveScripts(cmd, scriptsPath, logger)
+			if err != nil {
+				return err
+			}
+			return runCheck(scripts, proxyRaw, filterSpec, format, timeout, logger)
 		},
 	}
 
-	cmd.Flags().StringVar(&scriptsPath, "scripts", "", "path to a .js file or a directory containing index.json (required)")
+	cmd.Flags().StringVar(&scriptsPath, "scripts", "", "path to a .js file or a directory containing index.json (defaults to this build's embedded miaospeed-scripts, if any)")
 	cmd.Flags().StringVar(&proxyRaw, "proxy", "", "egress proxy: http://host:port or socks5://host:port (empty = direct)")
 	cmd.Flags().StringVar(&filterRaw, "filter", "", `script selection, e.g. "category:media,ai;region:hk,us;id:netflix;mode:exclude" (see "miaoprobe list" and README.md#configuration)`)
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "per-script execution timeout")
 	cmd.Flags().StringVar(&format, "format", "table", "output format: table or json")
-	_ = cmd.MarkFlagRequired("scripts")
 
 	return cmd
 }
 
-func runCheck(scriptsPath, proxyRaw string, filterSpec script.FilterSpec, format string, timeout time.Duration, logger *slog.Logger) error {
+func runCheck(scripts []script.Script, proxyRaw string, filterSpec script.FilterSpec, format string, timeout time.Duration, logger *slog.Logger) error {
 	proxyCfg, err := network.ParseProxy(proxyRaw)
 	if err != nil {
 		return err
 	}
 
-	scripts, err := script.Load(scriptsPath)
-	if err != nil {
-		return err
-	}
 	scripts = script.Select(scripts, filterSpec)
 	sort.SliceStable(scripts, func(i, j int) bool { return scripts[i].Priority < scripts[j].Priority })
 

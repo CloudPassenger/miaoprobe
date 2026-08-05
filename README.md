@@ -16,11 +16,21 @@ out of scope and will never be supported by this project.**
 
 ## Script source
 
-Scripts are not bundled with this repository. Point `--scripts` at a local
-checkout of [`miaospeed-scripts`](https://github.com/CloudPassenger/miaospeed-scripts)'s
+Point `--scripts` at a local checkout of
+[`miaospeed-scripts`](https://github.com/CloudPassenger/miaospeed-scripts)'s
 build output (`dist/`), which contains `index.json` plus one `.js` file per
 check, built with `pnpm run build` in that repository. You can also point
 `--scripts` at a single `.js` file for ad-hoc testing.
+
+`--scripts` is optional on an **embedded build**: `make build-embedded` (or
+any `go build -tags embedscripts`) fetches the latest `miaospeed-scripts`
+*nightly* release and bakes it into the binary, so `list`/`check`/`serve`
+use it automatically whenever `--scripts` isn't set — directly, via a
+config file's `scripts:` key, or via `MP_SCRIPTS`. A plain `make build`
+does not embed anything and requires `--scripts` (or the config/env
+equivalent). `miaoprobe --version` reports the embedded
+`miaospeed-scripts` version when there is one; see [Cross-compilation and
+releases](#cross-compilation-and-releases).
 
 ## Discovering scripts: `list`
 
@@ -44,7 +54,7 @@ deployment's `check`/`serve` is configured.
 
 | Flag        | Default | Description                                              |
 |-------------|---------|-----------------------------------------------------------|
-| `--scripts` | -       | required; a `.js` file or a directory with `index.json`   |
+| `--scripts` | -       | a `.js` file or a directory with `index.json`; defaults to this build's embedded `miaospeed-scripts`, if any (see [Script source](#script-source)) |
 | `--filter`  | ``      | script selection, see below (ignores config file/environment unless set here) |
 | `--format`  | `table` | `table` or `json`                                           |
 
@@ -116,7 +126,7 @@ go build -o miaoprobe ./cmd/miaoprobe
 
 | Flag        | Default | Description                                              |
 |-------------|---------|-----------------------------------------------------------|
-| `--scripts` | -       | required; a `.js` file or a directory with `index.json`   |
+| `--scripts` | -       | a `.js` file or a directory with `index.json`; defaults to this build's embedded `miaospeed-scripts`, if any (see [Script source](#script-source)) |
 | `--proxy`   | ``      | `http://host:port` / `https://host:port` / `socks5://host:port`; empty = direct |
 | `--filter`  | ``      | script selection, see [Selecting scripts](#selecting-scripts---filter) |
 | `--timeout` | `30s`   | per-script execution timeout                               |
@@ -136,7 +146,7 @@ go build -o miaoprobe ./cmd/miaoprobe
 
 | Flag         | Default | Description                                    |
 |--------------|---------|-------------------------------------------------|
-| `--scripts`  | -       | required; a directory with `index.json`         |
+| `--scripts`  | -       | a directory with `index.json`; defaults to this build's embedded `miaospeed-scripts`, if any (see [Script source](#script-source)) |
 | `--proxy`    | ``      | same as `check`                                 |
 | `--filter`   | ``      | same as `check`                                 |
 | `--interval` | `5m`    | polling interval (duration format, e.g. `30s`, `5m`) |
@@ -300,16 +310,30 @@ Builds are `CGO_ENABLED=0` for every target and produced via
 [goreleaser](https://goreleaser.com) (see `.goreleaser.yaml`), covering
 linux/darwin/windows across amd64/arm64. Pushing a `vX.Y.Z` tag triggers
 `.github/workflows/release.yml`, which builds and publishes archives plus
-checksums to a GitHub Release.
+checksums to a GitHub Release. Each release ships two variants per
+platform: plain `miaoprobe_*` archives, and `miaoprobe_*_embedded` archives
+built with the latest `miaospeed-scripts` nightly baked in (see [Script
+source](#script-source)); `.goreleaser.yaml`'s `before.hooks` fetches it
+once per release via `go run ./tools/fetchscripts`, and its
+`miaoprobe-embedded` build id compiles with `-tags embedscripts`.
 
 To build locally without publishing:
 
 ```sh
+make build              # plain binary, --scripts required
+make build-embedded     # fetches the latest nightly and embeds it (see below)
 make release-snapshot   # goreleaser release --snapshot --clean, output in dist/
 ```
 
+`make build-embedded` (`fetch-scripts` + `go build -tags embedscripts`) downloads
+`index.json`/`scripts.zip` from `miaospeed-scripts`' `nightly` GitHub release
+into `internal/script/embedded/` (gitignored) and go:embeds it — see
+`tools/fetchscripts` and `internal/script/embedded_scripts.go`.
+
 `miaoprobe --version` reports the version/commit/date baked in by goreleaser's
-ldflags (`internal/cli.version`, `.commit`, `.date`).
+ldflags (`internal/cli.version`, `.commit`, `.date`), plus, for an embedded
+build, the baked-in `miaospeed-scripts` version and a note that it's used by
+default.
 
 ## Compatibility testing
 
@@ -353,13 +377,16 @@ internal/engine/   goja VM: predefined.js (get/safeStringify/safeParse/println),
                    module.exports/handler resolution, timeout via vm.Interrupt
 internal/network/  http.Client construction for direct/HTTP-proxy/SOCKS5 egress,
                    plus the fetch() host function and its retry/timeout semantics
-internal/script/   loads a single .js file, or a directory's index.json manifest
+internal/script/   loads a single .js file, or a directory's index.json manifest;
+                   also loads a miaospeed-scripts nightly embedded at build time
+                   (-tags embedscripts, see tools/fetchscripts)
 internal/probe/    glue: run one script once through engine+network
 internal/exporter/ OTel instruments, background→status color mapping, polling
 internal/otelsetup/ MeterProvider: Prometheus pull reader + optional OTLP push reader
 internal/logging/  slog setup: rich/text/json formats, custom TRACE level
 internal/cli/      check and serve subcommands
 internal/compat/   compatibility test against a miaospeed-scripts build
+tools/fetchscripts/ fetches the latest miaospeed-scripts nightly for embedding
 ```
 
 ## Out of scope
@@ -370,8 +397,10 @@ internal/compat/   compatibility test against a miaospeed-scripts build
   every script in `miaospeed-scripts`.
 - No web UI/dashboard; Grafana is the intended downstream consumer.
 - No cron scheduling — `serve` only supports a fixed `--interval`.
-- No remote script repository fetching or hot reload; point `--scripts` at a
-  local checkout and re-run to pick up updates.
+- No remote script repository fetching or hot reload *at runtime*; point
+  `--scripts` at a local checkout and re-run to pick up updates. (Embedded
+  builds fetch a nightly snapshot at *build* time — see [Script
+  source](#script-source) — not on every run.)
 
 ## License
 

@@ -22,6 +22,10 @@ func newListCommand() *cobra.Command {
 		Use:   "list",
 		Short: "List detection scripts available under --scripts",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			logger, err := loggerFromFlags(cmd)
+			if err != nil {
+				return err
+			}
 			// Unlike check/serve, list always shows every script by
 			// default: it ignores any filter set via config file or
 			// MP_FILTER_* environment variables, only honoring an explicit
@@ -30,23 +34,22 @@ func newListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runList(scriptsPath, filterSpec, format)
+			scripts, err := resolveScripts(cmd, scriptsPath, logger)
+			if err != nil {
+				return err
+			}
+			return runList(scripts, filterSpec, format)
 		},
 	}
 
-	cmd.Flags().StringVar(&scriptsPath, "scripts", "", "path to a .js file or a directory containing index.json (required)")
+	cmd.Flags().StringVar(&scriptsPath, "scripts", "", "path to a .js file or a directory containing index.json (defaults to this build's embedded miaospeed-scripts, if any)")
 	cmd.Flags().StringVar(&filterRaw, "filter", "", `script selection, e.g. "category:media,ai;region:hk,us;id:netflix;mode:exclude"; unlike check/serve, list ignores any filter from config file/environment unless passed here`)
 	cmd.Flags().StringVar(&format, "format", "table", "output format: table or json")
-	_ = cmd.MarkFlagRequired("scripts")
 
 	return cmd
 }
 
-func runList(scriptsPath string, filterSpec script.FilterSpec, format string) error {
-	scripts, err := script.Load(scriptsPath)
-	if err != nil {
-		return err
-	}
+func runList(scripts []script.Script, filterSpec script.FilterSpec, format string) error {
 	scripts = script.Select(scripts, filterSpec)
 	sort.SliceStable(scripts, func(i, j int) bool { return scripts[i].Priority < scripts[j].Priority })
 

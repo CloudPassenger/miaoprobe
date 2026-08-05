@@ -3,7 +3,9 @@ package script
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -66,21 +68,35 @@ func loadSingleFile(path string) ([]Script, error) {
 }
 
 func loadDirectory(dir string) ([]Script, error) {
-	manifestPath := filepath.Join(dir, "index.json")
-	data, err := os.ReadFile(manifestPath)
+	scripts, err := loadFS(os.DirFS(dir))
 	if err != nil {
-		return nil, fmt.Errorf("read manifest %s: %w", manifestPath, err)
+		return nil, fmt.Errorf("%s: %w", dir, err)
+	}
+	for i := range scripts {
+		scripts[i].Path = filepath.Join(dir, filepath.FromSlash(scripts[i].Path))
+	}
+	return scripts, nil
+}
+
+// loadFS is the shared implementation behind loadDirectory and the
+// embedded-scripts loader (see embedded.go): it reads an index.json
+// manifest and the .js files it references from fsys, which uses "/"
+// paths regardless of OS (as required by fs.FS/embed.FS).
+func loadFS(fsys fs.FS) ([]Script, error) {
+	data, err := fs.ReadFile(fsys, "index.json")
+	if err != nil {
+		return nil, fmt.Errorf("read manifest: %w", err)
 	}
 
 	var entries []manifestEntry
 	if err := json.Unmarshal(data, &entries); err != nil {
-		return nil, fmt.Errorf("parse manifest %s: %w", manifestPath, err)
+		return nil, fmt.Errorf("parse manifest: %w", err)
 	}
 
 	scripts := make([]Script, 0, len(entries))
 	for _, e := range entries {
-		scriptPath := filepath.Join(dir, filepath.FromSlash(e.Path))
-		src, err := os.ReadFile(scriptPath)
+		scriptPath := path.Clean(e.Path)
+		src, err := fs.ReadFile(fsys, scriptPath)
 		if err != nil {
 			return nil, fmt.Errorf("read script %s (id=%s): %w", scriptPath, e.ID, err)
 		}

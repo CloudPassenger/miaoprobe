@@ -2,3 +2,8 @@
 /dist/
 *.exe
 .DS_Store
+
+# Populated by `make fetch-scripts` (tools/fetchscripts) for -tags
+# embedscripts builds; see internal/script/embedded_scripts.go.
+/internal/script/embedded/dist/
+/internal/script/embedded/VERSION

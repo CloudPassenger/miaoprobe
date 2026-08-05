@@ -33,6 +33,15 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./...
+      # Exercises the embedscripts build tag end-to-end: fetch the latest
+      # miaospeed-scripts nightly and build/test with it embedded (see
+      # tools/fetchscripts, internal/script/embedded_scripts.go).
+      - run: make fetch-scripts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: go build -tags embedscripts ./...
+      - run: go vet -tags embedscripts ./...
+      - run: go test -tags embedscripts ./internal/script/...
 
   goreleaser-snapshot:
     name: goreleaser snapshot build
@@ -49,3 +58,5 @@ jobs:
           distribution: goreleaser
           version: "~> v2"
           args: release --snapshot --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

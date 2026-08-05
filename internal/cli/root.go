@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/CloudPassenger/miaoprobe/internal/script"
 )
 
 // version, commit, and date are set via -ldflags at build time (see
@@ -14,12 +16,24 @@ var (
 	date    = "unknown"
 )
 
+// versionString reports miaoprobe's own version/commit/date, plus, for
+// builds made with -tags embedscripts (see tools/fetchscripts and the
+// Makefile's build-embedded target), the embedded miaospeed-scripts
+// version and a note that --scripts defaults to it.
+func versionString() string {
+	v := fmt.Sprintf("%s (commit %s, built %s)", version, commit, date)
+	if script.EmbeddedAvailable() {
+		v += fmt.Sprintf("; embeds miaospeed-scripts %s (used by default when --scripts is not set)", script.EmbeddedVersion())
+	}
+	return v
+}
+
 // Execute runs the miaoprobe root command.
 func Execute() error {
 	root := &cobra.Command{
 		Use:          "miaoprobe",
 		Short:        "Media unlock / network probe tool driven by embedded JS scripts",
-		Version:      fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
+		Version:      versionString(),
 		SilenceUsage: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return loadConfig(cmd)

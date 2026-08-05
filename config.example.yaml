@@ -22,7 +22,10 @@ log-format: rich
 
 # --- shared by list, check, and serve ---
 
-# required: a .js file, or a directory containing index.json
+# a .js file, or a directory containing index.json. Optional if this
+# binary was built with the embedded miaospeed-scripts nightly (see
+# README.md#script-source) -- omit this key (or leave it empty) to use
+# that instead.
 scripts: /opt/miaospeed-scripts/dist
 
 # script selection: id/category/region/tag are OR'd together, then `mode`

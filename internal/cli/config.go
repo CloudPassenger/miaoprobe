@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -149,6 +150,24 @@ func resolveFilterSpec(cmd *cobra.Command, allowConfigEnv bool) (script.FilterSp
 	}
 	spec, _ := cmd.Context().Value(filterSpecContextKey{}).(script.FilterSpec)
 	return spec, nil
+}
+
+// resolveScripts loads the scripts to run for cmd. If --scripts was set,
+// whether directly on the command line, via a config file, or via the
+// environment (loadConfig applies all three to the flag, and marks it
+// Changed, before RunE runs), it loads from that path. Otherwise it falls
+// back to any miaospeed-scripts build embedded in this binary at build
+// time (see internal/script.EmbeddedAvailable), logging that it's doing
+// so. If neither is available, it errors, asking for --scripts.
+func resolveScripts(cmd *cobra.Command, scriptsPath string, logger *slog.Logger) ([]script.Script, error) {
+	if cmd.Flags().Changed("scripts") && scriptsPath != "" {
+		return script.Load(scriptsPath)
+	}
+	if !script.EmbeddedAvailable() {
+		return nil, fmt.Errorf("--scripts is required: this build has no embedded miaospeed-scripts")
+	}
+	logger.Info("no --scripts given, using scripts embedded in this build", "version", script.EmbeddedVersion())
+	return script.LoadEmbedded()
 }
 
 // resolveConfigPath returns the config file to load, if any. An explicit
