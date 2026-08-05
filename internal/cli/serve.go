@@ -2,7 +2,7 @@ package cli
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -26,7 +26,11 @@ func newServeCommand() *cobra.Command {
 		Use:   "serve",
 		Short: "Poll scripts on an interval and expose results as Prometheus metrics",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runServe(scriptsPath, proxyRaw, filterRaw, listen, interval, timeout)
+			logger, err := loggerFromFlags(cmd)
+			if err != nil {
+				return err
+			}
+			return runServe(scriptsPath, proxyRaw, filterRaw, listen, interval, timeout, logger)
 		},
 	}
 
@@ -41,7 +45,7 @@ func newServeCommand() *cobra.Command {
 	return cmd
 }
 
-func runServe(scriptsPath, proxyRaw, filterRaw, listen string, interval, timeout time.Duration) error {
+func runServe(scriptsPath, proxyRaw, filterRaw, listen string, interval, timeout time.Duration, logger *slog.Logger) error {
 	proxyCfg, err := network.ParseProxy(proxyRaw)
 	if err != nil {
 		return err
@@ -52,7 +56,7 @@ func runServe(scriptsPath, proxyRaw, filterRaw, listen string, interval, timeout
 		return err
 	}
 	scripts = script.Filter(scripts, script.ParseFilter(filterRaw))
-	log.Printf("loaded %d script(s) from %s", len(scripts), scriptsPath)
+	logger.Info("loaded scripts", "count", len(scripts), "path", scriptsPath)
 
 	reg := prometheus.NewRegistry()
 	metrics := exporter.NewMetrics(reg)
@@ -63,6 +67,7 @@ func runServe(scriptsPath, proxyRaw, filterRaw, listen string, interval, timeout
 		Timeout:  timeout,
 		Interval: interval,
 		Metrics:  metrics,
+		Logger:   logger,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -81,7 +86,7 @@ func runServe(scriptsPath, proxyRaw, filterRaw, listen string, interval, timeout
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
-	log.Printf("serving /metrics on %s (interval=%s)", listen, interval)
+	logger.Info("serving metrics", "listen", listen, "interval", interval)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}

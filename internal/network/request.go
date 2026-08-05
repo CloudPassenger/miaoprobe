@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/CloudPassenger/miaoprobe/internal/logging"
 )
 
 // RequestOptions mirrors the fields fetch() accepts from a script.
@@ -72,10 +75,13 @@ func doRequest(ctx context.Context, client *http.Client, opt *RequestOptions) ([
 // RequestWithRetry sends the request up to retry times (clamped to [1,10]),
 // waiting timeoutMs milliseconds for each attempt, and returns the first
 // successful response. If every attempt fails, resp is nil.
-func RequestWithRetry(client *http.Client, retry int, timeoutMs int64, opt *RequestOptions) ([]byte, *http.Response, []string) {
+func RequestWithRetry(client *http.Client, retry int, timeoutMs int64, opt *RequestOptions, logger *slog.Logger) ([]byte, *http.Response, []string) {
 	retry = clampInt(retry, 1, 10)
 	if timeoutMs <= 0 {
 		timeoutMs = 3000
+	}
+	if logger == nil {
+		logger = logging.Discard()
 	}
 
 	var body []byte
@@ -83,12 +89,24 @@ func RequestWithRetry(client *http.Client, retry int, timeoutMs int64, opt *Requ
 	var redirects []string
 
 	for i := 0; resp == nil && i < retry; i++ {
+		logger.Debug("http request", "method", opt.Method, "url", opt.URL, "attempt", i+1, "retry", retry, "timeoutMs", timeoutMs)
+
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMs)*time.Millisecond)
 		b, r, rd, err := doRequest(ctx, client, opt)
 		cancel()
-		if err == nil {
-			body, resp, redirects = b, r, rd
+
+		if err != nil {
+			logger.Debug("http request attempt failed", "method", opt.Method, "url", opt.URL, "attempt", i+1, "err", err)
+			continue
 		}
+
+		body, resp, redirects = b, r, rd
+		logging.Trace(logger, "http response", "method", opt.Method, "url", opt.URL, "attempt", i+1,
+			"statusCode", r.StatusCode, "bodyBytes", len(b), "redirects", len(rd))
+	}
+
+	if resp == nil {
+		logger.Warn("http request exhausted retries", "method", opt.Method, "url", opt.URL, "retry", retry)
 	}
 
 	return body, resp, redirects

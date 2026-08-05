@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"sort"
 	"text/tabwriter"
@@ -24,7 +25,11 @@ func newCheckCommand() *cobra.Command {
 		Use:   "check",
 		Short: "Run scripts once and print the results",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCheck(scriptsPath, proxyRaw, filterRaw, format, timeout)
+			logger, err := loggerFromFlags(cmd)
+			if err != nil {
+				return err
+			}
+			return runCheck(scriptsPath, proxyRaw, filterRaw, format, timeout, logger)
 		},
 	}
 
@@ -38,7 +43,7 @@ func newCheckCommand() *cobra.Command {
 	return cmd
 }
 
-func runCheck(scriptsPath, proxyRaw, filterRaw, format string, timeout time.Duration) error {
+func runCheck(scriptsPath, proxyRaw, filterRaw, format string, timeout time.Duration, logger *slog.Logger) error {
 	proxyCfg, err := network.ParseProxy(proxyRaw)
 	if err != nil {
 		return err
@@ -53,7 +58,7 @@ func runCheck(scriptsPath, proxyRaw, filterRaw, format string, timeout time.Dura
 
 	outcomes := make([]probe.Outcome, len(scripts))
 	for i, sc := range scripts {
-		outcomes[i] = probe.Run(sc, proxyCfg, timeout)
+		outcomes[i] = probe.Run(sc, proxyCfg, timeout, logger)
 	}
 
 	switch format {

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CloudPassenger/miaoprobe/internal/logging"
 	"github.com/CloudPassenger/miaoprobe/internal/probe"
 	"github.com/CloudPassenger/miaoprobe/internal/script"
 )
@@ -100,7 +101,7 @@ func TestCompatibilityAgainstMiaospeedScripts(t *testing.T) {
 		go func(i int, sc script.Script) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			outcome := probe.Run(sc, nil, 45*time.Second)
+			outcome := probe.Run(sc, nil, 45*time.Second, logging.Discard())
 			results[i] = result{id: sc.ID, err: outcome.Err}
 		}(i, sc)
 	}

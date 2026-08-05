@@ -4,12 +4,16 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/dop251/goja"
 	"github.com/dop251/goja_nodejs/console"
 	"github.com/dop251/goja_nodejs/require"
+
+	"github.com/CloudPassenger/miaoprobe/internal/logging"
 )
 
 //go:embed predefined.js
@@ -24,13 +28,17 @@ type FetchBuilder func(vm *goja.Runtime) func(call goja.FunctionCall) goja.Value
 // from the embedded predefined.js, ported verbatim from miaospeed) plus the
 // fetch implementation from buildFetch and a minimal CommonJS module.exports
 // shim.
-func New(buildFetch FetchBuilder) (*goja.Runtime, error) {
+func New(buildFetch FetchBuilder, logger *slog.Logger) (*goja.Runtime, error) {
+	if logger == nil {
+		logger = logging.Discard()
+	}
+
 	vm := goja.New()
 	new(require.Registry).Enable(vm)
 	console.Enable(vm)
 	vm.SetMaxCallStackSize(1024)
 
-	vm.Set("print", printFunc())
+	vm.Set("print", printFunc(logger))
 	vm.Set("fetch", buildFetch(vm))
 
 	if _, err := vm.RunString(predefinedJS); err != nil {
@@ -43,13 +51,18 @@ func New(buildFetch FetchBuilder) (*goja.Runtime, error) {
 	return vm, nil
 }
 
-func printFunc() func(goja.FunctionCall) goja.Value {
+// printFunc backs the script-visible println() global (via predefined.js's
+// `const println = print;`), routing script output through the same
+// structured logger as the rest of the engine instead of straight to
+// stdout, so --log-format applies to it too.
+func printFunc(logger *slog.Logger) func(goja.FunctionCall) goja.Value {
 	return func(call goja.FunctionCall) goja.Value {
 		args := make([]interface{}, len(call.Arguments))
 		for i, a := range call.Arguments {
 			args[i] = a
 		}
-		fmt.Println(args...)
+		msg := strings.TrimRight(fmt.Sprintln(args...), "\n")
+		logger.Info(msg, "source", "script")
 		return goja.Undefined()
 	}
 }

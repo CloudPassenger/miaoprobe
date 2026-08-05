@@ -14,7 +14,7 @@ func nullFetch(vm *goja.Runtime) func(goja.FunctionCall) goja.Value {
 }
 
 func TestRunScriptModuleExports(t *testing.T) {
-	vm, err := New(nullFetch)
+	vm, err := New(nullFetch, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestRunScriptModuleExports(t *testing.T) {
 }
 
 func TestRunScriptGlobalHandlerFallback(t *testing.T) {
-	vm, err := New(nullFetch)
+	vm, err := New(nullFetch, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestRunScriptGlobalHandlerFallback(t *testing.T) {
 }
 
 func TestRunScriptTimeout(t *testing.T) {
-	vm, err := New(nullFetch)
+	vm, err := New(nullFetch, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestRunScriptTimeout(t *testing.T) {
 }
 
 func TestRunScriptNoHandler(t *testing.T) {
-	vm, err := New(nullFetch)
+	vm, err := New(nullFetch, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

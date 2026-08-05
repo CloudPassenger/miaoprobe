@@ -2,12 +2,13 @@ package exporter
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/CloudPassenger/miaoprobe/internal/logging"
 	"github.com/CloudPassenger/miaoprobe/internal/network"
 	"github.com/CloudPassenger/miaoprobe/internal/probe"
 	"github.com/CloudPassenger/miaoprobe/internal/script"
@@ -47,6 +48,7 @@ type Poller struct {
 	Timeout  time.Duration
 	Interval time.Duration
 	Metrics  *Metrics
+	Logger   *slog.Logger
 }
 
 // Run executes one polling cycle immediately, then every Interval, until ctx
@@ -68,13 +70,18 @@ func (p *Poller) Run(ctx context.Context) {
 }
 
 func (p *Poller) pollOnce() {
+	logger := p.Logger
+	if logger == nil {
+		logger = logging.Discard()
+	}
+
 	for _, sc := range p.Scripts {
-		outcome := probe.Run(sc, p.Proxy, p.Timeout)
+		outcome := probe.Run(sc, p.Proxy, p.Timeout, logger)
 		p.Metrics.Duration.WithLabelValues(sc.ID).Set(outcome.Duration.Seconds())
 
 		if outcome.Err != nil {
 			p.Metrics.Errors.WithLabelValues(sc.ID).Inc()
-			log.Printf("script %s: execution error: %v", sc.ID, outcome.Err)
+			logger.Error("script execution error", "script", sc.ID, "err", outcome.Err)
 			continue
 		}
 
@@ -83,7 +90,7 @@ func (p *Poller) pollOnce() {
 			continue
 		}
 		if !cs.Recognized {
-			log.Printf("script %s: unrecognized background color %q, exporting status -1", sc.ID, outcome.Result.Background)
+			logger.Warn("unrecognized background color, exporting status -1", "script", sc.ID, "background", outcome.Result.Background)
 		}
 
 		p.Metrics.UnlockStatus.WithLabelValues(sc.ID, sc.Name, strings.Join(sc.Regions, ","), strings.Join(sc.Tags, ",")).Set(cs.Value)

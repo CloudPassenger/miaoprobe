@@ -1,15 +1,19 @@
 package network
 
 import (
+	"log/slog"
 	"time"
 
 	"github.com/dop251/goja"
+
+	"github.com/CloudPassenger/miaoprobe/internal/logging"
 )
 
 // FetchOptions configures the egress used by fetch() calls from scripts.
 type FetchOptions struct {
 	Proxy       *ProxyConfig
 	DialTimeout time.Duration
+	Logger      *slog.Logger
 }
 
 // FetchFactory returns a goja host function implementing the synchronous
@@ -21,7 +25,10 @@ func FetchFactory(vm *goja.Runtime, opts FetchOptions) func(call goja.FunctionCa
 	if dialTimeout <= 0 {
 		dialTimeout = 5 * time.Second
 	}
-
+	logger := opts.Logger
+	if logger == nil {
+		logger = logging.Discard()
+	}
 	return func(call goja.FunctionCall) goja.Value {
 		url := call.Argument(0).String()
 		params := call.Argument(1)
@@ -74,9 +81,12 @@ func FetchFactory(vm *goja.Runtime, opts FetchOptions) func(call goja.FunctionCa
 			}
 		}
 
+		logger.Debug("fetch call", "method", method, "url", url, "useHost", useHost, "noRedir", noRedir, "retry", retry, "timeoutMs", timeout)
+
 		proxyCfg := opts.Proxy
 		client, err := NewClient(proxyCfg, useHost, sni, dialTimeout)
 		if err != nil {
+			logger.Warn("failed to build http client", "url", url, "err", err)
 			return goja.Null()
 		}
 
@@ -88,7 +98,7 @@ func FetchFactory(vm *goja.Runtime, opts FetchOptions) func(call goja.FunctionCa
 			Body:    []byte(body),
 			NoRedir: noRedir,
 			SNI:     sni,
-		})
+		}, logger)
 
 		if resp == nil {
 			return goja.Null()
