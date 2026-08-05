@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/CloudPassenger/miaoprobe/internal/script"
 )
 
 // newTestCommand builds a minimal command with the same flag shape as
@@ -18,6 +20,7 @@ func newTestCommand() *cobra.Command {
 	cmd.Flags().String("log-level", "info", "")
 	cmd.Flags().Duration("timeout", 30*time.Second, "")
 	cmd.Flags().Bool("otel-insecure", false, "")
+	cmd.Flags().String("filter", "", "")
 	return cmd
 }
 
@@ -101,6 +104,104 @@ func TestLoadConfigAutoDiscoveredMissingFileIsNotAnError(t *testing.T) {
 	cmd := newTestCommand()
 	if err := loadConfig(cmd); err != nil {
 		t.Fatalf("loadConfig: %v", err)
+	}
+}
+
+func TestResolveFilterSpecFromEnv(t *testing.T) {
+	cmd := newTestCommand()
+	t.Setenv("MP_FILTER_CATEGORY", "media,ai")
+	t.Setenv("MP_FILTER_MODE", "exclude")
+
+	if err := loadConfig(cmd); err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	spec, err := resolveFilterSpec(cmd, true)
+	if err != nil {
+		t.Fatalf("resolveFilterSpec: %v", err)
+	}
+	if len(spec.Category) != 2 || spec.Category[0] != "media" || spec.Category[1] != "ai" {
+		t.Errorf("category = %+v, want [media ai]", spec.Category)
+	}
+	if spec.Mode != script.ModeExclude {
+		t.Errorf("mode = %q, want exclude", spec.Mode)
+	}
+}
+
+func TestResolveFilterSpecFromFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yaml := "filter:\n  region: [hk, us]\n  id: [netflix]\n"
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newTestCommand()
+	if err := cmd.Flags().Set("config", path); err != nil {
+		t.Fatal(err)
+	}
+	if err := loadConfig(cmd); err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	spec, err := resolveFilterSpec(cmd, true)
+	if err != nil {
+		t.Fatalf("resolveFilterSpec: %v", err)
+	}
+	if len(spec.Region) != 2 || spec.Region[0] != "hk" || spec.Region[1] != "us" {
+		t.Errorf("region = %+v, want [hk us]", spec.Region)
+	}
+	if len(spec.ID) != 1 || spec.ID[0] != "netflix" {
+		t.Errorf("id = %+v, want [netflix]", spec.ID)
+	}
+}
+
+func TestResolveFilterSpecCLIFullyOverridesEnv(t *testing.T) {
+	cmd := newTestCommand()
+	t.Setenv("MP_FILTER_CATEGORY", "media")
+	t.Setenv("MP_FILTER_REGION", "hk")
+	if err := cmd.Flags().Set("filter", "id:netflix"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := loadConfig(cmd); err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	spec, err := resolveFilterSpec(cmd, true)
+	if err != nil {
+		t.Fatalf("resolveFilterSpec: %v", err)
+	}
+	if len(spec.Category) != 0 || len(spec.Region) != 0 {
+		t.Errorf("expected env fields to be fully discarded, got %+v", spec)
+	}
+	if len(spec.ID) != 1 || spec.ID[0] != "netflix" {
+		t.Errorf("id = %+v, want [netflix]", spec.ID)
+	}
+}
+
+func TestResolveFilterSpecDisallowConfigEnv(t *testing.T) {
+	cmd := newTestCommand()
+	t.Setenv("MP_FILTER_CATEGORY", "media")
+
+	if err := loadConfig(cmd); err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	spec, err := resolveFilterSpec(cmd, false)
+	if err != nil {
+		t.Fatalf("resolveFilterSpec: %v", err)
+	}
+	if !spec.IsZero() {
+		t.Errorf("expected zero-value spec when config/env is disallowed (list semantics), got %+v", spec)
+	}
+
+	// But an explicit --filter still applies even with allowConfigEnv=false.
+	if err := cmd.Flags().Set("filter", "id:netflix"); err != nil {
+		t.Fatal(err)
+	}
+	spec, err = resolveFilterSpec(cmd, false)
+	if err != nil {
+		t.Fatalf("resolveFilterSpec: %v", err)
+	}
+	if len(spec.ID) != 1 || spec.ID[0] != "netflix" {
+		t.Errorf("id = %+v, want [netflix] even with allowConfigEnv=false", spec.ID)
 	}
 }
 

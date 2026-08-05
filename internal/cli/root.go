@@ -28,6 +28,7 @@ func Execute() error {
 	root.PersistentFlags().String("config", "", "path to a YAML config file (default: auto-discover $XDG_CONFIG_HOME/miaoprobe/config.yaml, ~/.config/miaoprobe/config.yaml, then /etc/miaoprobe/config.yaml)")
 	root.PersistentFlags().String("log-level", "info", "log level: trace, debug, info, warn, or error")
 	root.PersistentFlags().String("log-format", "rich", "log format: rich (colored console), text, or json")
+	root.AddCommand(newListCommand())
 	root.AddCommand(newCheckCommand())
 	root.AddCommand(newServeCommand())
 	return root.Execute()

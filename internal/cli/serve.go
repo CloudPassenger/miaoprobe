@@ -20,8 +20,9 @@ import (
 
 // serveOpts holds the flags for the serve subcommand.
 type serveOpts struct {
-	scriptsPath, proxyRaw, filterRaw, listen string
-	interval, timeout                        time.Duration
+	scriptsPath, proxyRaw, listen string
+	interval, timeout             time.Duration
+	filterSpec                    script.FilterSpec
 
 	otelEndpoint, otelProtocol, otelHeadersRaw string
 	otelInsecure                               bool
@@ -30,6 +31,7 @@ type serveOpts struct {
 
 func newServeCommand() *cobra.Command {
 	var o serveOpts
+	var filterRaw string
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -39,13 +41,18 @@ func newServeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			filterSpec, err := resolveFilterSpec(cmd, true)
+			if err != nil {
+				return err
+			}
+			o.filterSpec = filterSpec
 			return runServe(o, logger)
 		},
 	}
 
 	cmd.Flags().StringVar(&o.scriptsPath, "scripts", "", "directory containing index.json (required)")
 	cmd.Flags().StringVar(&o.proxyRaw, "proxy", "", "egress proxy: http://host:port or socks5://host:port (empty = direct)")
-	cmd.Flags().StringVar(&o.filterRaw, "filter", "", "comma-separated region/tag filter")
+	cmd.Flags().StringVar(&filterRaw, "filter", "", `script selection, e.g. "category:media,ai;region:hk,us;id:netflix;mode:exclude" (see "miaoprobe list" and README.md#configuration)`)
 	cmd.Flags().DurationVar(&o.interval, "interval", 5*time.Minute, "polling interval")
 	cmd.Flags().DurationVar(&o.timeout, "timeout", 30*time.Second, "per-script execution timeout")
 	cmd.Flags().StringVar(&o.listen, "listen", ":9765", "address to expose /metrics on")
@@ -74,7 +81,7 @@ func runServe(o serveOpts, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	scripts = script.Filter(scripts, script.ParseFilter(o.filterRaw))
+	scripts = script.Select(scripts, o.filterSpec)
 	logger.Info("loaded scripts", "count", len(scripts), "path", o.scriptsPath)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

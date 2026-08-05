@@ -22,6 +22,70 @@ build output (`dist/`), which contains `index.json` plus one `.js` file per
 check, built with `pnpm run build` in that repository. You can also point
 `--scripts` at a single `.js` file for ad-hoc testing.
 
+## Discovering scripts: `list`
+
+```sh
+# every script in a miaospeed-scripts build
+./miaoprobe list --scripts /path/to/miaospeed-scripts/dist
+
+# narrow down first, then copy IDs/categories/regions/tags into --filter
+# for check/serve
+./miaoprobe list --scripts /path/to/miaospeed-scripts/dist --filter "category:media;region:hk" --format json
+```
+
+`list` prints each script's `id`, `name`, `description`, `category`, `regions`,
+`tags`, and `priority` (from `index.json`) so you know what's available before
+running `check`/`serve`. It accepts the same `--filter` flag described below,
+with one difference: **`list` always shows every script by default**, even if
+a `filter:` config file section or `MP_FILTER_*` environment variables are
+set — it only filters when `--filter` is passed explicitly on its own command
+line. This keeps `list` usable as a pure discovery tool regardless of how a
+deployment's `check`/`serve` is configured.
+
+| Flag        | Default | Description                                              |
+|-------------|---------|-----------------------------------------------------------|
+| `--scripts` | -       | required; a `.js` file or a directory with `index.json`   |
+| `--filter`  | ``      | script selection, see below (ignores config file/environment unless set here) |
+| `--format`  | `table` | `table` or `json`                                           |
+
+## Selecting scripts: `--filter`
+
+`check`, `serve`, and `list` all take the same `--filter` flag to select
+which scripts run, by any combination of exact ID and category/region/tag
+membership (as set in `index.json`). It's a single flag, but its value can
+come from three places, in different shapes suited to each:
+
+- **Command line**: a compact `key:v1,v2;key2:v3` string, e.g.
+  `--filter "category:media,ai;region:hk,us;id:netflix;mode:exclude"`.
+  Recognized keys are `id`, `category`, `region`, `tag` (each a
+  comma-separated list), and `mode`.
+- **Config file** (YAML): a nested `filter:` section with one list per key:
+  ```yaml
+  filter:
+    mode: include       # or exclude; defaults to include
+    category: [media, ai]
+    region: [hk, us]
+    tag: []
+    id: [netflix]
+  ```
+- **Environment**: one `MP_FILTER_*` variable per key, each a
+  comma-separated string — `MP_FILTER_CATEGORY=media,ai`,
+  `MP_FILTER_REGION=hk,us`, `MP_FILTER_TAG`, `MP_FILTER_ID`,
+  `MP_FILTER_MODE=exclude`.
+
+`id`/`category`/`region`/`tag` are OR'd together: a script matches if it
+satisfies *any* of them (e.g. `category:media;region:hk` selects every
+`media` script plus every `hk` script, not just their intersection).
+`mode` (default `include`) then decides whether matches are kept
+(`include`) or dropped (`exclude`, i.e. "run everything except these").
+Passing nothing (`--filter ""`, no config section, no environment
+variables) matches every script.
+
+Precedence follows the same file → environment → flag order as every other
+option (see [Configuration](#configuration)), but as a whole: an explicit
+`--filter` on the command line completely replaces whatever the config
+file/environment specified — it is not merged field-by-field with them.
+
 ## Quick start: one-shot check
 
 ```sh
@@ -33,13 +97,19 @@ go build -o miaoprobe ./cmd/miaoprobe
 # run a single script file
 ./miaoprobe check --scripts /path/to/miaospeed-scripts/dist/global/netflix.js
 
-# only global/stream scripts, through a SOCKS5 proxy, JSON output
+# only media scripts in hk/us, through a SOCKS5 proxy, JSON output
 ./miaoprobe check \
   --scripts /path/to/miaospeed-scripts/dist \
   --proxy socks5://127.0.0.1:1080 \
-  --filter global,stream \
+  --filter "category:media;region:hk,us" \
   --timeout 30s \
   --format json
+
+# a couple of specific scripts by ID (see `miaoprobe list`)
+./miaoprobe check --scripts /path/to/miaospeed-scripts/dist --filter "id:netflix,disneyplus"
+
+# everything except AI scripts
+./miaoprobe check --scripts /path/to/miaospeed-scripts/dist --filter "category:ai;mode:exclude"
 ```
 
 `check` flags:
@@ -48,7 +118,7 @@ go build -o miaoprobe ./cmd/miaoprobe
 |-------------|---------|-----------------------------------------------------------|
 | `--scripts` | -       | required; a `.js` file or a directory with `index.json`   |
 | `--proxy`   | ``      | `http://host:port` / `https://host:port` / `socks5://host:port`; empty = direct |
-| `--filter`  | ``      | comma-separated region/tag match, e.g. `hk,stream`         |
+| `--filter`  | ``      | script selection, see [Selecting scripts](#selecting-scripts---filter) |
 | `--timeout` | `30s`   | per-script execution timeout                               |
 | `--format`  | `table` | `table` (colorized box-drawing table) or `json`             |
 
@@ -166,17 +236,25 @@ stdout stays parseable even with verbose logging enabled.
 
 ## Configuration
 
-Every flag on `check` and `serve` (including the global `--log-level`/
-`--log-format`) can also be set via a YAML config file or environment
-variables, for `systemd`-native and container/cloud-native deployments
-where passing everything on the command line is awkward. Precedence,
-highest to lowest:
+Every flag on `list`, `check`, and `serve` (including the global
+`--log-level`/`--log-format`) can also be set via a YAML config file or
+environment variables, for `systemd`-native and container/cloud-native
+deployments where passing everything on the command line is awkward.
+Precedence, highest to lowest:
 
 1. command-line flag
 2. environment variable (`MP_<FLAG_NAME>`, e.g. `--otel-endpoint` ->
    `MP_OTEL_ENDPOINT`)
 3. YAML config file
 4. flag default
+
+`--filter` is the one exception to the flat "flag name = config key" rule
+described below: see [Selecting scripts](#selecting-scripts---filter) for
+its own nested YAML shape and per-key `MP_FILTER_*` variables. It still
+follows the same file → environment → flag precedence, just resolved as one
+unit rather than field-by-field — and on `list` specifically, the config
+file/environment layers for `--filter` are skipped entirely unless
+`--filter` is also passed on that same command line.
 
 The config file is picked up in this order:
 

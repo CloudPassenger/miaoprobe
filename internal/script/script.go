@@ -15,6 +15,7 @@ type Script struct {
 	ID          string
 	Name        string
 	Description string
+	Category    string
 	Regions     []string
 	Tags        []string
 	Priority    int
@@ -28,6 +29,7 @@ type manifestEntry struct {
 	Path        string   `json:"path"`
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
+	Category    string   `json:"category"`
 	Regions     []string `json:"regions"`
 	Tags        []string `json:"tags"`
 	Priority    int      `json:"priority"`
@@ -86,6 +88,7 @@ func loadDirectory(dir string) ([]Script, error) {
 			ID:          e.ID,
 			Name:        e.Name,
 			Description: e.Description,
+			Category:    e.Category,
 			Regions:     e.Regions,
 			Tags:        e.Tags,
 			Priority:    e.Priority,

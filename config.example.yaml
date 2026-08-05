@@ -5,10 +5,12 @@
 #   $XDG_CONFIG_HOME/miaoprobe/config.yaml (or ~/.config/miaoprobe/config.yaml)
 #   /etc/miaoprobe/config.yaml             (conventional systemd path)
 #
-# Keys match flag names verbatim (dashes included). Both `check` and `serve`
-# read this same file; a command simply ignores keys for flags it doesn't
-# have. Precedence, highest to lowest: command-line flag > MP_-prefixed
-# environment variable > this file > flag default. See README.md#configuration.
+# Keys match flag names verbatim (dashes included), except `filter` (see
+# below), which is a nested section instead of a scalar. `list`, `check`,
+# and `serve` all read this same file; a command simply ignores keys for
+# flags it doesn't have. Precedence, highest to lowest: command-line flag >
+# MP_-prefixed environment variable > this file > flag default. See
+# README.md#configuration.
 
 # --- global (check + serve) ---
 
@@ -18,25 +20,38 @@ log-level: info
 # log format: rich (colored console), text, or json
 log-format: rich
 
-# --- shared by check and serve ---
+# --- shared by list, check, and serve ---
 
 # required: a .js file, or a directory containing index.json
 scripts: /opt/miaospeed-scripts/dist
+
+# script selection: id/category/region/tag are OR'd together, then `mode`
+# decides whether matches are kept (include, the default) or dropped
+# (exclude). All fields are optional; an empty filter matches everything.
+# NOTE: unlike check/serve, `list` ignores this section entirely (and the
+# MP_FILTER_* environment variables below) unless --filter is also passed
+# on its own command line -- it defaults to showing every script. See
+# README.md#selecting-scripts---filter. Equivalent MP_FILTER_* environment
+# variables (comma-separated): MP_FILTER_MODE, MP_FILTER_CATEGORY,
+# MP_FILTER_REGION, MP_FILTER_TAG, MP_FILTER_ID.
+filter:
+  mode: include
+  category: []
+  region: []
+  tag: []
+  id: []
+
+# output format: table or json
+format: table
+
+# --- shared by check and serve ---
 
 # egress proxy: http://host:port, https://host:port, or socks5://host:port
 # (empty = direct)
 proxy: socks5://127.0.0.1:1080
 
-# comma-separated region/tag filter, e.g. hk,stream
-filter: ""
-
 # per-script execution timeout
 timeout: 30s
-
-# --- check only ---
-
-# output format: table or json
-format: table
 
 # --- serve only ---
 
