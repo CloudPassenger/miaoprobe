@@ -132,6 +132,12 @@ go build -o miaoprobe ./cmd/miaoprobe
 | `--timeout` | `30s`   | per-script execution timeout                               |
 | `--format`  | `table` | `table` (colorized box-drawing table) or `json`             |
 
+`--timeout` is a hard deadline: it cancels a script's in-flight `fetch()` as
+well as interrupting its JavaScript. A script's own `fetch()` `timeout`
+parameter is additionally clamped to 30s per attempt (with `retry` capped at
+10, as before), so no single script can stall a run indefinitely.
+
+
 ## Serve mode: Prometheus exporter + OpenTelemetry push
 
 ```sh
@@ -188,13 +194,35 @@ scrape and the Grafana Cloud push can both run off the same poll cycle.
 
 Exposed metrics:
 
-- `miaoprobe_unlock_status{id,name,region,tags}` — gauge, taken from the
-  script's explicit `status` field when set, otherwise mapped from the
-  `background` RGB result per `miaospeed-scripts/consts/colors.ts`:
-  `1` unlocked, `0` failed, `0.5` warning, `-1` unknown. Scripts whose result
-  is "N/A" (`status: "na"` or background `142,140,142`) are skipped (no
-  series emitted) rather than reported as any numeric status.
+- `miaoprobe_unlock_status{id}` — gauge, taken from the script's explicit
+  `status` field when set, otherwise mapped from the `background` RGB result
+  per `miaospeed-scripts/consts/colors.ts`: `1` unlocked, `0` failed,
+  `0.5` warning, `-1` unknown. A script that fails to execute, or reports
+  "N/A" (`status: "na"` or background `142,140,142`), reports `-1`.
+
+  This series is **always written on every poll**. Gauges are last-value
+  aggregations that the SDK never forgets, so skipping a write would leave
+  `/metrics` serving the previous — possibly hours old — value as if it were
+  current, and an alert on `== 0` would never fire.
+- `miaoprobe_script_info{id,name,category,region,tags}` — gauge, always `1`,
+  carrying the static metadata. Metadata lives here rather than on
+  `miaoprobe_unlock_status` so that editing a script's `region`/`tags`
+  cannot orphan a status series (which would then double-count in
+  `sum by (id)` aggregations). Join on `id`:
+
+  ```promql
+  miaoprobe_unlock_status * on(id) group_left(name, region, tags) miaoprobe_script_info
+  ```
+- `miaoprobe_last_success_timestamp_seconds{id}` — gauge, Unix time of the
+  last run that produced a usable status. Alert on staleness rather than
+  trusting the status value alone:
+
+  ```promql
+  time() - miaoprobe_last_success_timestamp_seconds > 3 * 300
+  ```
 - `miaoprobe_check_duration_seconds{id}` — gauge, wall time of the last run.
+- `miaoprobe_poll_duration_seconds` — gauge, wall time of the last full
+  polling cycle across all scripts.
 - `miaoprobe_check_errors_total{id}` — counter, incremented when a script
   *fails to execute* (host API error, script exception, or timeout) — not
   when it reports a business "failed"/"unlock" result.
