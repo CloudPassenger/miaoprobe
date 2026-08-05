@@ -52,7 +52,7 @@ go build -o miaoprobe ./cmd/miaoprobe
 | `--timeout` | `30s`   | per-script execution timeout                               |
 | `--format`  | `table` | `table` (colorized box-drawing table) or `json`             |
 
-## Serve mode: Prometheus exporter
+## Serve mode: Prometheus exporter + OpenTelemetry push
 
 ```sh
 ./miaoprobe serve \
@@ -72,6 +72,39 @@ go build -o miaoprobe ./cmd/miaoprobe
 | `--interval` | `5m`    | polling interval (duration format, e.g. `30s`, `5m`) |
 | `--timeout`  | `30s`   | per-script execution timeout                    |
 | `--listen`   | `:9765` | address `/metrics` is served on                 |
+
+`serve` also builds on a single OpenTelemetry `MeterProvider` internally, so
+the same instruments can be read two ways at once: pulled from `/metrics`
+(Prometheus) and/or pushed on an interval to a remote OTLP endpoint — no
+external OTel Collector needed. OTLP push flags:
+
+| Flag              | Default          | Description                                    |
+|-------------------|------------------|-------------------------------------------------|
+| `--otel-endpoint`  | ``               | OTLP endpoint to push to; empty disables push (falls back to `OTEL_EXPORTER_OTLP_*` env vars) |
+| `--otel-protocol`  | `http/protobuf`  | `http/protobuf` or `grpc`                       |
+| `--otel-headers`   | ``               | comma-separated `key=value` headers sent with every export, e.g. auth |
+| `--otel-insecure`  | `false`          | disable TLS (local collectors only)             |
+| `--otel-interval`  | `1m`             | how often buffered metrics are pushed           |
+
+For `http/protobuf`, if `--otel-endpoint` has no `/v1/metrics` suffix it is
+appended automatically, so a gateway base URL works as-is.
+
+### Pushing to Grafana Cloud
+
+Grafana Cloud's OTLP gateway accepts metrics directly, no collector
+required. Find the endpoint and generate an API token under your stack's
+"OpenTelemetry" configuration page, then:
+
+```sh
+./miaoprobe serve \
+  --scripts /path/to/miaospeed-scripts/dist \
+  --otel-endpoint https://otlp-gateway-prod-xx.grafana.net/otlp \
+  --otel-headers "Authorization=Basic $(echo -n '<instance-id>:<api-token>' | base64 -w0)" \
+  --otel-interval 1m
+```
+
+`/metrics` keeps serving locally at the same time, so a local Prometheus
+scrape and the Grafana Cloud push can both run off the same poll cycle.
 
 Exposed metrics:
 
@@ -200,7 +233,8 @@ internal/network/  http.Client construction for direct/HTTP-proxy/SOCKS5 egress,
                    plus the fetch() host function and its retry/timeout semantics
 internal/script/   loads a single .js file, or a directory's index.json manifest
 internal/probe/    glue: run one script once through engine+network
-internal/exporter/ Prometheus metrics, background→status color mapping, polling
+internal/exporter/ OTel instruments, background→status color mapping, polling
+internal/otelsetup/ MeterProvider: Prometheus pull reader + optional OTLP push reader
 internal/logging/  slog setup: rich/text/json formats, custom TRACE level
 internal/cli/      check and serve subcommands
 internal/compat/   compatibility test against a miaospeed-scripts build
