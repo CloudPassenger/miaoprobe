@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -107,4 +108,42 @@ func TestFetchAbortsOnContextCancel(t *testing.T) {
 	if elapsed > 5*time.Second {
 		t.Fatalf("fetch did not abort promptly on cancel: took %v", elapsed)
 	}
+}
+
+// Redirect tracking must not mutate a shared client, or concurrent probes
+// race on CheckRedirect.
+func TestConcurrentRequestsShareClientSafely(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/from" {
+			http.Redirect(w, r, "/to", http.StatusFound)
+			return
+		}
+		_, _ = w.Write([]byte("done"))
+	}))
+	defer srv.Close()
+
+	client, err := NewClient(nil, false, "", 5*time.Second)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer client.CloseIdleConnections()
+
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			//nolint:bodyclose // closed inside doRequest
+			_, resp, redirects := RequestWithRetry(context.Background(), client, 1, 3000,
+				&RequestOptions{Method: "GET", URL: srv.URL + "/from"}, nil)
+			if resp == nil {
+				t.Errorf("expected a response")
+				return
+			}
+			if len(redirects) != 1 {
+				t.Errorf("expected 1 redirect, got %d", len(redirects))
+			}
+		}()
+	}
+	wg.Wait()
 }

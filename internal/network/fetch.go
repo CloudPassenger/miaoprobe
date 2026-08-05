@@ -101,6 +101,12 @@ func FetchFactory(vm *goja.Runtime, opts FetchOptions) func(call goja.FunctionCa
 			logger.Warn("failed to build http client", "url", url, "err", err)
 			return goja.Null()
 		}
+		// Each fetch() builds its own Transport (it may carry a call-specific
+		// SNI or bypass the proxy), so its idle connections must be released
+		// here. Without this every call leaks sockets for IdleConnTimeout,
+		// which is what exhausts file descriptors under concurrency.
+		defer client.CloseIdleConnections()
+
 		// Body is already closed inside doRequest (internal/network/request.go);
 		// the linter cannot see across the RequestWithRetry->doRequest boundary.
 		respBody, resp, redirects := RequestWithRetry(baseCtx, client, retry, timeout, &RequestOptions{ //nolint:bodyclose

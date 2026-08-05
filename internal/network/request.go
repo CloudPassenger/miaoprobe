@@ -73,8 +73,14 @@ func doRequest(ctx context.Context, client *http.Client, opt *RequestOptions) ([
 		req.AddCookie(&http.Cookie{Name: k, Value: v})
 	}
 
+	// Track redirects on a shallow copy of the client rather than mutating
+	// the caller's: CheckRedirect closes over the per-call redirects slice,
+	// so writing it to a shared *http.Client would be a data race as soon as
+	// two probes run concurrently. The copy shares the Transport (which is
+	// safe for concurrent use), so connection pooling is unaffected.
 	redirects := []string{}
-	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+	c := *client
+	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if opt.NoRedir || len(redirects) > 64 {
 			return http.ErrUseLastResponse
 		}
@@ -82,7 +88,7 @@ func doRequest(ctx context.Context, client *http.Client, opt *RequestOptions) ([
 		return nil
 	}
 
-	resp, err := client.Do(req)
+	resp, err := c.Do(req)
 	if err != nil {
 		return nil, nil, nil, err
 	}
