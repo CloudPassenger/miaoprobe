@@ -72,6 +72,28 @@ archives:
       - goos: windows
         formats: [zip]
 
+dockers_v2:
+  - id: miaoprobe
+    ids: [miaoprobe]
+    images:
+      - "ghcr.io/cloudpassenger/miaoprobe"
+    tags:
+      - "{{ .Version }}"
+      - "latest"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    sbom: false
+    labels:
+      "org.opencontainers.image.title": "{{ .ProjectName }}"
+      "org.opencontainers.image.description": "miaoprobe"
+      "org.opencontainers.image.url": "https://github.com/CloudPassenger/miaoprobe"
+      "org.opencontainers.image.source": "{{ .GitURL }}"
+      "org.opencontainers.image.version": "{{ .Version }}"
+      "org.opencontainers.image.created": "{{ .Date }}"
+      "org.opencontainers.image.revision": "{{ .FullCommit }}"
+      "org.opencontainers.image.licenses": "AGPL-3.0"
+
 checksum:
   name_template: "checksums.txt"
 
