@@ -1,0 +1,35 @@
+# Example Docker Stack for miaoprobe, configured entirely through
+# environment variables (see .env.example). Copy .env.example to .env,
+# adjust as needed, then:
+#
+#   docker compose up -d
+#
+# By default this runs `miaoprobe serve` (the image's default CMD), which
+# polls scripts on an interval and exposes Prometheus metrics on
+# MP_METRICS_LISTEN (default :9765). See README.md#configuration.
+services:
+  miaoprobe:
+    image: ghcr.io/cloudpassenger/miaoprobe:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "9765:9765"
+    # Uncomment to probe through an external egress proxy already running
+    # on the host or in another container, instead of MP_PROBE_PROXY
+    # pointing elsewhere.
+    # network_mode: "service:proxy"
+
+    # The image bundles the latest miaospeed-scripts nightly, so MP_SCRIPTS
+    # is optional. To use your own scripts instead, mount them read-only
+    # and point MP_SCRIPTS at the mount in .env:
+    # volumes:
+    #   - ./miaospeed-scripts/dist:/scripts:ro
+
+    # Hardening: miaoprobe never writes to disk at runtime, so the
+    # container filesystem can be fully read-only.
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
