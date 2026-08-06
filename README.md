@@ -22,14 +22,15 @@ build output (`dist/`), which contains `index.json` plus one `.js` file per
 check, built with `pnpm run build` in that repository. You can also point
 `--scripts` at a single `.js` file for ad-hoc testing.
 
-`--scripts` is optional on an **embedded build**: `make build-embedded` (or
-any `go build -tags embedscripts`) fetches the latest `miaospeed-scripts`
+`--scripts` is optional on the **default build**: `make build` (or any
+`go build -tags embedscripts`) fetches the latest `miaospeed-scripts`
 *nightly* release and bakes it into the binary, so `list`/`check`/`serve`
 use it automatically whenever `--scripts` isn't set — directly, via a
-config file's `scripts:` key, or via `MP_SCRIPTS`. A plain `make build`
-does not embed anything and requires `--scripts` (or the config/env
-equivalent). `miaoprobe --version` reports the embedded
-`miaospeed-scripts` version when there is one; see [Cross-compilation and
+config file's `scripts:` key, or via `MP_SCRIPTS`. The **slim build**
+(`make build-slim`, a plain `go build` without the tag) does not embed
+anything and requires `--scripts` (or the config/env equivalent).
+`miaoprobe --version` reports the embedded `miaospeed-scripts` version
+when there is one; see [Cross-compilation and
 releases](#cross-compilation-and-releases).
 
 ## Discovering scripts: `list`
@@ -420,21 +421,22 @@ Builds are `CGO_ENABLED=0` for every target and produced via
 linux/darwin/windows across amd64/arm64. Pushing a `vX.Y.Z` tag triggers
 `.github/workflows/release.yml`, which builds and publishes archives plus
 checksums to a GitHub Release. Each release ships two variants per
-platform: plain `miaoprobe_*` archives, and `miaoprobe_*_embedded` archives
-built with the latest `miaospeed-scripts` nightly baked in (see [Script
-source](#script-source)); `.goreleaser.yaml`'s `before.hooks` fetches it
-once per release via `go run ./tools/fetchscripts`, and its
-`miaoprobe-embedded` build id compiles with `-tags embedscripts`.
+platform: `miaoprobe_*` archives built with the latest `miaospeed-scripts`
+nightly baked in (see [Script source](#script-source)), and slim
+`miaoprobe_*_slim` archives without it; `.goreleaser.yaml`'s
+`before.hooks` fetches the nightly once per release via `go run
+./tools/fetchscripts`, and its `miaoprobe` build id compiles with `-tags
+embedscripts` while `miaoprobe-slim` doesn't.
 
 To build locally without publishing:
 
 ```sh
-make build              # plain binary, --scripts required
-make build-embedded     # fetches the latest nightly and embeds it (see below)
+make build              # fetches the latest nightly and embeds it (see below)
+make build-slim         # plain binary, --scripts required
 make release-snapshot   # goreleaser release --snapshot --clean, output in dist/
 ```
 
-`make build-embedded` (`fetch-scripts` + `go build -tags embedscripts`) downloads
+`make build` (`fetch-scripts` + `go build -tags embedscripts`) downloads
 `index.json`/`scripts.zip` from `miaospeed-scripts`' `nightly` GitHub release
 into `internal/script/embedded/` (gitignored) and go:embeds it — see
 `tools/fetchscripts` and `internal/script/embedded_scripts.go`.

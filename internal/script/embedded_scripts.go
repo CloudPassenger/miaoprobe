@@ -10,7 +10,7 @@ import (
 
 // embedded/dist and embedded/VERSION are populated by `go run
 // ./tools/fetchscripts` (wired up as the Makefile's `fetch-scripts`
-// target, a prerequisite of `build-embedded`) before this file is
+// target, a prerequisite of `build`) before this file is
 // compiled; it downloads the latest miaospeed-scripts nightly release
 // (index.json + scripts.zip) and records its version. Building with
 // -tags embedscripts without running that first fails here with "no

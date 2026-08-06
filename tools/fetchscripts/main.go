@@ -3,7 +3,7 @@
 // it out under internal/script/embedded/ so that building miaoprobe with
 // -tags embedscripts can go:embed it (see
 // internal/script/embedded_scripts.go). It is normally invoked via `make
-// fetch-scripts`, a prerequisite of `make build-embedded`.
+// fetch-scripts`, a prerequisite of `make build`.
 package main
 
 import (

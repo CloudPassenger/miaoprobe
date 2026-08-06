@@ -18,7 +18,7 @@ var (
 
 // versionString reports miaoprobe's own version/commit/date, plus, for
 // builds made with -tags embedscripts (see tools/fetchscripts and the
-// Makefile's build-embedded target), the embedded miaospeed-scripts
+// Makefile's default build target), the embedded miaospeed-scripts
 // version and a note that --scripts defaults to it.
 func versionString() string {
 	v := fmt.Sprintf("%s (commit %s, built %s)", version, commit, date)

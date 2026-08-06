@@ -3,8 +3,8 @@ package script
 import "fmt"
 
 // EmbeddedAvailable reports whether this binary was built with an embedded
-// miaospeed-scripts build. Regular builds (plain `go build`/`make build`)
-// do not embed anything; `make build-embedded` (or any `go build` with
+// miaospeed-scripts build. Slim builds (plain `go build`/`make build-slim`)
+// do not embed anything; `make build` (or any `go build` with
 // `-tags embedscripts`) fetches the latest miaospeed-scripts nightly
 // release into internal/script/embedded/ and bakes it into the binary
 // using Go's embed directive. See tools/fetchscripts.

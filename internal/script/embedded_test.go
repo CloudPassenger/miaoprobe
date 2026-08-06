@@ -7,7 +7,7 @@ import "testing"
 // instead of panicking.
 func TestEmbeddedWithoutBuildTag(t *testing.T) {
 	if EmbeddedAvailable() {
-		t.Skip("built with -tags embedscripts; see embedded_scripts_test.go-equivalent coverage via `make build-embedded`")
+		t.Skip("built with -tags embedscripts; see embedded_scripts_test.go-equivalent coverage via `make build`")
 	}
 	if v := EmbeddedVersion(); v != "" {
 		t.Fatalf("EmbeddedVersion() = %q, want \"\"", v)

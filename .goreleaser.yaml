@@ -4,14 +4,20 @@ before:
   hooks:
     - go mod tidy
     # Fetches the latest miaospeed-scripts nightly into
-    # internal/script/embedded/ for the miaoprobe-embedded build below (see
-    # tools/fetchscripts); the plain miaoprobe build ignores it.
+    # internal/script/embedded/ for the default miaoprobe build below (see
+    # tools/fetchscripts); the miaoprobe-slim build ignores it.
     - go run ./tools/fetchscripts
 
 builds:
+  # miaoprobe (default) bakes in the miaospeed-scripts nightly build
+  # fetched above (-tags embedscripts, see
+  # internal/script/embedded_scripts.go), so it works out of the box
+  # without --scripts.
   - id: miaoprobe
     main: ./cmd/miaoprobe
     binary: miaoprobe
+    tags:
+      - embedscripts
     env:
       - CGO_ENABLED=0
     goos:
@@ -27,14 +33,11 @@ builds:
       - -X github.com/CloudPassenger/miaoprobe/internal/cli.commit={{.Commit}}
       - -X github.com/CloudPassenger/miaoprobe/internal/cli.date={{.Date}}
 
-  # miaoprobe-embedded bakes in the miaospeed-scripts nightly build fetched
-  # above (-tags embedscripts, see internal/script/embedded_scripts.go), so
-  # it works out of the box without --scripts.
-  - id: miaoprobe-embedded
+  # miaoprobe-slim has no embedded scripts and requires --scripts (or the
+  # config/env equivalent) at runtime.
+  - id: miaoprobe-slim
     main: ./cmd/miaoprobe
     binary: miaoprobe
-    tags:
-      - embedscripts
     env:
       - CGO_ENABLED=0
     goos:
@@ -60,11 +63,11 @@ archives:
       - goos: windows
         formats: [zip]
 
-  - id: miaoprobe-embedded
-    ids: [miaoprobe-embedded]
+  - id: miaoprobe-slim
+    ids: [miaoprobe-slim]
     formats: [tar.gz]
     name_template: >-
-      {{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_embedded
+      {{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_slim
     format_overrides:
       - goos: windows
         formats: [zip]
