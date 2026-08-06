@@ -1,5 +1,18 @@
 version: 2
 
+git:
+  # A "nightly" release/tag is published on every push to main (see
+  # .github/workflows/nightly.yml); don't let it confuse current/previous
+  # tag detection on the next real release.
+  ignore_tags:
+    - nightly
+
+# Version used by `goreleaser release --snapshot` (see
+# .github/workflows/nightly.yml), which builds binaries/archives for the
+# nightly release without requiring (or creating) a real version tag.
+snapshot:
+  version_template: "nightly-{{ .ShortCommit }}"
+
 before:
   hooks:
     - go mod tidy
