@@ -67,6 +67,12 @@ func doRequest(ctx context.Context, client *http.Client, opt *RequestOptions) ([
 		return nil, nil, nil, err
 	}
 	for k, v := range opt.Headers {
+		// http.Request.Header 中的 Host 不会被用作实际请求行的 Host，
+		// 必须显式赋值给 req.Host 才能生效（常用于 IP 直连 + 自定义 Host/SNI 场景）。
+		if http.CanonicalHeaderKey(k) == "Host" {
+			req.Host = v
+			continue
+		}
 		req.Header.Add(k, v)
 	}
 	for k, v := range opt.Cookies {
