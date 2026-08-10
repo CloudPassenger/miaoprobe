@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	runtimemetrics "go.opentelemetry.io/contrib/instrumentation/runtime"
+	"go.opentelemetry.io/otel/attribute"
 	otlpmetricgrpc "go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	otlpmetrichttp "go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
@@ -23,6 +25,10 @@ import (
 type Config struct {
 	// ServiceName is reported as the service.name resource attribute.
 	ServiceName string
+	// ServiceInstanceID is reported as the service.instance.id resource
+	// attribute. When empty, an ID supplied by the standard OTel resource
+	// environment is preserved; otherwise the host name is used.
+	ServiceInstanceID string
 
 	// OTLPEndpoint is the remote OpenTelemetry endpoint to push metrics to,
 	// e.g. "https://otlp-gateway-prod-xx.grafana.net/otlp" (http/protobuf)
@@ -51,17 +57,22 @@ type Config struct {
 type Provider struct {
 	MeterProvider *metric.MeterProvider
 	Registry      *prometheus.Registry
+	// ServiceInstanceID is the effective service.instance.id sent over OTLP.
+	ServiceInstanceID string
 }
 
 // New builds a MeterProvider with a Prometheus pull reader, plus an OTLP
 // push reader when cfg.OTLPEndpoint is set.
 func New(ctx context.Context, cfg Config) (*Provider, error) {
-	res, err := resource.Merge(resource.Default(), resource.NewSchemaless(
-		semconv.ServiceName(cfg.ServiceName),
-	))
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil, fmt.Errorf("otelsetup: determine service instance ID: %w", err)
+	}
+	res, err := buildResource(resource.Default(), cfg, hostname)
 	if err != nil {
 		return nil, fmt.Errorf("otelsetup: build resource: %w", err)
 	}
+	instanceID, _ := res.Set().Value(semconv.ServiceInstanceIDKey)
 
 	reg := prometheus.NewRegistry()
 	promExporter, err := otelprom.New(
@@ -107,9 +118,31 @@ func New(ctx context.Context, cfg Config) (*Provider, error) {
 	}
 
 	return &Provider{
-		MeterProvider: mp,
-		Registry:      reg,
+		MeterProvider:     mp,
+		Registry:          reg,
+		ServiceInstanceID: instanceID.AsString(),
 	}, nil
+}
+
+func buildResource(base *resource.Resource, cfg Config, hostname string) (*resource.Resource, error) {
+	attrs := []attribute.KeyValue{semconv.ServiceName(cfg.ServiceName)}
+	if instanceID := strings.TrimSpace(cfg.ServiceInstanceID); instanceID != "" {
+		attrs = append(attrs, semconv.ServiceInstanceID(instanceID))
+	}
+
+	res, err := resource.Merge(base, resource.NewSchemaless(attrs...))
+	if err != nil {
+		return nil, err
+	}
+	if instanceID, ok := res.Set().Value(semconv.ServiceInstanceIDKey); ok && instanceID.AsString() != "" {
+		return res, nil
+	}
+
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" {
+		return nil, errors.New("host name is empty and no service instance ID was configured")
+	}
+	return resource.Merge(res, resource.NewSchemaless(semconv.ServiceInstanceID(hostname)))
 }
 
 // Shutdown flushes any buffered metrics and releases resources, including

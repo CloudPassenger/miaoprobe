@@ -28,9 +28,9 @@ type serveOpts struct {
 
 	runtimeMetrics bool
 
-	otelEndpoint, otelProtocol, otelHeadersRaw string
-	otelInsecure                               bool
-	otelInterval                               time.Duration
+	otelEndpoint, otelProtocol, otelHeadersRaw, otelInstance string
+	otelInsecure                                             bool
+	otelInterval                                             time.Duration
 }
 
 func newServeCommand() *cobra.Command {
@@ -69,6 +69,7 @@ func newServeCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&o.runtimeMetrics, "metrics.runtime", true, "also export Go runtime and process metrics (goroutines, heap, GC, open fds, resident memory) for diagnosing miaoprobe itself")
 
 	cmd.Flags().StringVar(&o.otelEndpoint, "otel.endpoint", "", "OTLP endpoint to push metrics to (e.g. Grafana Cloud's OTLP gateway); empty disables push, honors OTEL_EXPORTER_OTLP_* env vars")
+	cmd.Flags().StringVar(&o.otelInstance, "otel.instance", "", "value for the service.instance.id OTLP resource attribute; defaults to the host name")
 	cmd.Flags().StringVar(&o.otelProtocol, "otel.protocol", "http/protobuf", "OTLP wire protocol: http/protobuf or grpc")
 	cmd.Flags().StringVar(&o.otelHeadersRaw, "otel.headers", "", "comma-separated key=value headers sent with every OTLP export (e.g. Authorization=Basic <base64>)")
 	cmd.Flags().BoolVar(&o.otelInsecure, "otel.insecure", false, "disable TLS for the OTLP connection (local collectors only)")
@@ -94,12 +95,13 @@ func runServe(o serveOpts, logger *slog.Logger) error {
 	defer stop()
 
 	provider, err := otelsetup.New(ctx, otelsetup.Config{
-		ServiceName:  "miaoprobe",
-		OTLPEndpoint: o.otelEndpoint,
-		OTLPProtocol: o.otelProtocol,
-		OTLPHeaders:  otelHeaders,
-		OTLPInsecure: o.otelInsecure,
-		OTLPInterval: o.otelInterval,
+		ServiceName:       "miaoprobe",
+		ServiceInstanceID: o.otelInstance,
+		OTLPEndpoint:      o.otelEndpoint,
+		OTLPProtocol:      o.otelProtocol,
+		OTLPHeaders:       otelHeaders,
+		OTLPInsecure:      o.otelInsecure,
+		OTLPInterval:      o.otelInterval,
 
 		RuntimeMetrics: o.runtimeMetrics,
 	})
@@ -170,7 +172,7 @@ func runServe(o serveOpts, logger *slog.Logger) error {
 	}()
 
 	if o.otelEndpoint != "" {
-		logger.Info("pushing metrics via otlp", "endpoint", o.otelEndpoint, "protocol", o.otelProtocol, "interval", o.otelInterval)
+		logger.Info("pushing metrics via otlp", "endpoint", o.otelEndpoint, "protocol", o.otelProtocol, "interval", o.otelInterval, "instance", provider.ServiceInstanceID)
 	}
 	logger.Info("serving metrics", "listen", o.listen, "interval", o.interval, "concurrency", poller.Concurrency)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

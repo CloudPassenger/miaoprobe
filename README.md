@@ -175,6 +175,7 @@ external OTel Collector needed. OTLP push flags:
 | Flag              | Default          | Description                                    |
 |-------------------|------------------|-------------------------------------------------|
 | `--otel.endpoint`  | ``               | OTLP endpoint to push to; empty disables push (falls back to `OTEL_EXPORTER_OTLP_*` env vars) |
+| `--otel.instance`  | host name        | unique `service.instance.id`; Grafana maps it to the `instance` label |
 | `--otel.protocol`  | `http/protobuf`  | `http/protobuf` or `grpc`                       |
 | `--otel.headers`   | ``               | comma-separated `key=value` headers sent with every export, e.g. auth |
 | `--otel.insecure`  | `false`          | disable TLS (local collectors only)             |
@@ -182,6 +183,28 @@ external OTel Collector needed. OTLP push flags:
 
 For `http/protobuf`, if `--otel.endpoint` has no `/v1/metrics` suffix it is
 appended automatically, so a gateway base URL works as-is.
+
+Each pushed instance needs a unique `service.instance.id`; otherwise metrics
+from multiple servers have the same series identity and cannot be separated
+in Grafana. miaoprobe uses the host name by default. Set a stable, descriptive
+value explicitly when deploying containers or when host names may collide:
+
+```sh
+# Server A
+MP_OTEL_INSTANCE=hk-edge-01 ./miaoprobe serve ...
+
+# Server B
+MP_OTEL_INSTANCE=us-edge-01 ./miaoprobe serve ...
+```
+
+The standard `OTEL_RESOURCE_ATTRIBUTES=service.instance.id=hk-edge-01` setting
+is also honored when `--otel.instance` / `MP_OTEL_INSTANCE` is empty. Grafana
+Cloud converts this resource attribute to the Prometheus-compatible `instance`
+label, so it can be queried directly:
+
+```promql
+miaoprobe_unlock_status{instance="hk-edge-01"}
+```
 
 ### Pushing to Grafana Cloud
 
@@ -363,7 +386,7 @@ structure — one name for all three sources:
 | `output.*` | `format` | `list`, `check` |
 | `probe.*` | `proxy`, `timeout`, `interval`, `concurrency` | `check`, `serve` (the last two are serve-only) |
 | `metrics.*` | `listen` | `serve` |
-| `otel.*` | `endpoint`, `protocol`, `headers`, `insecure`, `interval` | `serve` |
+| `otel.*` | `instance`, `endpoint`, `protocol`, `headers`, `insecure`, `interval` | `serve` |
 | *(ungrouped)* | `config`, `scripts`, `filter` | all commands |
 
 A command ignores keys for flags it doesn't have, so one file can configure
@@ -400,6 +423,7 @@ probe:
   proxy: socks5://127.0.0.1:1080
   interval: 5m
 otel:
+  instance: hk-edge-01
   endpoint: https://otlp-gateway-prod-xx.grafana.net/otlp
   headers: "Authorization=Basic <base64>"
 ```

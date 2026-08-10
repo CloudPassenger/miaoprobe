@@ -4,6 +4,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
 func TestWithDefaultMetricsPath(t *testing.T) {
@@ -35,6 +38,52 @@ func TestParseHeaders(t *testing.T) {
 
 	if _, err := ParseHeaders("no-equals-sign"); err == nil {
 		t.Fatal("expected error for malformed header")
+	}
+}
+
+func TestBuildResourceServiceInstanceID(t *testing.T) {
+	cases := []struct {
+		name       string
+		base       *resource.Resource
+		configured string
+		hostname   string
+		want       string
+	}{
+		{
+			name:       "configured ID overrides environment resource",
+			base:       resource.NewSchemaless(semconv.ServiceInstanceID("from-env")),
+			configured: "edge-hk-01",
+			hostname:   "host-a",
+			want:       "edge-hk-01",
+		},
+		{
+			name:     "environment resource is preserved",
+			base:     resource.NewSchemaless(semconv.ServiceInstanceID("from-env")),
+			hostname: "host-a",
+			want:     "from-env",
+		},
+		{
+			name:     "host name is the default",
+			base:     resource.Empty(),
+			hostname: "host-a",
+			want:     "host-a",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := buildResource(tc.base, Config{
+				ServiceName:       "miaoprobe",
+				ServiceInstanceID: tc.configured,
+			}, tc.hostname)
+			if err != nil {
+				t.Fatalf("buildResource: %v", err)
+			}
+			got, ok := res.Set().Value(semconv.ServiceInstanceIDKey)
+			if !ok || got.AsString() != tc.want {
+				t.Fatalf("service.instance.id = %q, %v, want %q, true", got.AsString(), ok, tc.want)
+			}
+		})
 	}
 }
 

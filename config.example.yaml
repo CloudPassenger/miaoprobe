@@ -83,6 +83,10 @@ metrics:
   runtime: true
 
 otel:
+  # unique service.instance.id used as Grafana's instance label; defaults to
+  # the host name. Set this explicitly when host names are not unique/stable.
+  instance: ""
+
   # OTLP endpoint to push metrics to (e.g. Grafana Cloud's OTLP gateway);
   # empty disables push, falls back to OTEL_EXPORTER_OTLP_* env vars
   endpoint: ""

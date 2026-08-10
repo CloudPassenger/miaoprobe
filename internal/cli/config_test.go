@@ -20,6 +20,7 @@ func newTestCommand() *cobra.Command {
 	cmd.Flags().String("log.level", "info", "")
 	cmd.Flags().Duration("probe.timeout", 30*time.Second, "")
 	cmd.Flags().Bool("otel.insecure", false, "")
+	cmd.Flags().String("otel.instance", "", "")
 	cmd.Flags().String("filter", "", "")
 	return cmd
 }
@@ -211,7 +212,7 @@ func TestResolveFilterSpecDisallowConfigEnv(t *testing.T) {
 func TestLoadConfigGroupedKeysAcrossSources(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	body := "log:\n  level: warn\nprobe:\n  timeout: 11s\notel:\n  insecure: true\n"
+	body := "log:\n  level: warn\nprobe:\n  timeout: 11s\notel:\n  insecure: true\n  instance: from-file\n"
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -232,10 +233,14 @@ func TestLoadConfigGroupedKeysAcrossSources(t *testing.T) {
 	if v, _ := cmd.Flags().GetBool("otel.insecure"); !v {
 		t.Error("otel.insecure = false, want true (from nested YAML)")
 	}
+	if v, _ := cmd.Flags().GetString("otel.instance"); v != "from-file" {
+		t.Errorf("otel.instance = %q, want from-file (from nested YAML)", v)
+	}
 
 	// The same keys via MP_ variables, which must win over the file.
 	t.Setenv("MP_LOG_LEVEL", "error")
 	t.Setenv("MP_PROBE_TIMEOUT", "22s")
+	t.Setenv("MP_OTEL_INSTANCE", "from-env")
 	cmd = newTestCommand()
 	if err := cmd.Flags().Set("config", path); err != nil {
 		t.Fatal(err)
@@ -248,6 +253,9 @@ func TestLoadConfigGroupedKeysAcrossSources(t *testing.T) {
 	}
 	if v, _ := cmd.Flags().GetDuration("probe.timeout"); v != 22*time.Second {
 		t.Errorf("probe.timeout = %v, want 22s (env beats file)", v)
+	}
+	if v, _ := cmd.Flags().GetString("otel.instance"); v != "from-env" {
+		t.Errorf("otel.instance = %q, want from-env (env beats file)", v)
 	}
 }
 
