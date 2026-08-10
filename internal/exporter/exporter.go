@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 
+	"github.com/CloudPassenger/miaoprobe/internal/engine"
 	"github.com/CloudPassenger/miaoprobe/internal/logging"
 	"github.com/CloudPassenger/miaoprobe/internal/network"
 	"github.com/CloudPassenger/miaoprobe/internal/probe"
@@ -37,6 +38,18 @@ type Metrics struct {
 	LastSuccess  otelmetric.Float64Gauge
 	ScriptInfo   otelmetric.Int64Gauge
 	PollDuration otelmetric.Float64Gauge
+	ResultInfo   otelmetric.Int64ObservableGauge
+	ResultExtra  otelmetric.Int64ObservableGauge
+
+	resultMu sync.RWMutex
+	results  map[string]resultInfo
+}
+
+// resultInfo holds dynamic data from the most recent successful probe. It is
+// observed at collection time so changed values do not leave stale series.
+type resultInfo struct {
+	region string
+	extra  []engine.ExtraField
 }
 
 // NewMetrics creates the miaoprobe_* instruments on meter. Note that
@@ -55,17 +68,67 @@ func NewMetrics(meter otelmetric.Meter) (*Metrics, error) {
 		otelmetric.WithDescription("Static script metadata as labels; always 1. Join against miaoprobe_unlock_status on the id label"))
 	pollDuration, err6 := meter.Float64Gauge("miaoprobe_poll_duration_seconds",
 		otelmetric.WithDescription("Wall-clock duration of the last full polling cycle across all scripts"))
-	if err := errors.Join(err1, err2, err3, err4, err5, err6); err != nil {
+	resultInfoGauge, err7 := meter.Int64ObservableGauge("miaoprobe_probe_result_info",
+		otelmetric.WithDescription("Dynamic result metadata from the latest successful probe; always 1"))
+	resultExtra, err8 := meter.Int64ObservableGauge("miaoprobe_probe_extra_info",
+		otelmetric.WithDescription("Extra fields from the latest successful probe; always 1"))
+	if err := errors.Join(err1, err2, err3, err4, err5, err6, err7, err8); err != nil {
 		return nil, fmt.Errorf("exporter: create instruments: %w", err)
 	}
-	return &Metrics{
+	m := &Metrics{
 		UnlockStatus: unlockStatus,
 		Duration:     duration,
 		Errors:       checkErrors,
 		LastSuccess:  lastSuccess,
 		ScriptInfo:   scriptInfo,
 		PollDuration: pollDuration,
-	}, nil
+		ResultInfo:   resultInfoGauge,
+		ResultExtra:  resultExtra,
+		results:      make(map[string]resultInfo),
+	}
+	if _, err := meter.RegisterCallback(m.observeResults, resultInfoGauge, resultExtra); err != nil {
+		return nil, fmt.Errorf("exporter: register result observer: %w", err)
+	}
+	return m, nil
+}
+
+func (m *Metrics) observeResults(_ context.Context, observer otelmetric.Observer) error {
+	m.resultMu.RLock()
+	defer m.resultMu.RUnlock()
+
+	for id, result := range m.results {
+		observer.ObserveInt64(m.ResultInfo, 1, otelmetric.WithAttributes(
+			attribute.String("id", id),
+			attribute.String("region", result.region),
+		))
+		for _, extra := range result.extra {
+			observer.ObserveInt64(m.ResultExtra, 1, otelmetric.WithAttributes(
+				attribute.String("id", id),
+				attribute.String("region", result.region),
+				attribute.String("key", extra.Key),
+				attribute.String("label", extra.Label),
+				attribute.String("value", fmt.Sprint(extra.Value)),
+				attribute.String("type", extra.Type),
+				attribute.String("unit", extra.Unit),
+			))
+		}
+	}
+	return nil
+}
+
+func (m *Metrics) setResult(id string, result engine.Result) {
+	m.resultMu.Lock()
+	defer m.resultMu.Unlock()
+	m.results[id] = resultInfo{
+		region: result.Region,
+		extra:  append([]engine.ExtraField(nil), result.Extra...),
+	}
+}
+
+func (m *Metrics) clearResult(id string) {
+	m.resultMu.Lock()
+	defer m.resultMu.Unlock()
+	delete(m.results, id)
 }
 
 // DefaultConcurrency is the number of scripts polled in parallel when
@@ -207,6 +270,7 @@ func (p *Poller) probeAndRecord(ctx context.Context, sc script.Script, logger *s
 
 	if outcome.Err != nil {
 		p.Metrics.Errors.Add(ctx, 1, idAttr)
+		p.Metrics.clearResult(sc.ID)
 		// Report unknown rather than leaving the last good value in place:
 		// a script that starts failing must not keep looking "unlocked".
 		p.Metrics.UnlockStatus.Record(ctx, StatusUnknown, idAttr)
@@ -230,6 +294,7 @@ func (p *Poller) probeAndRecord(ctx context.Context, sc script.Script, logger *s
 
 	p.Metrics.UnlockStatus.Record(ctx, value, idAttr)
 	p.Metrics.LastSuccess.Record(ctx, float64(time.Now().Unix()), idAttr)
+	p.Metrics.setResult(sc.ID, outcome.Result)
 }
 
 // recordUnknown marks a script's status as indeterminate, used when probing
@@ -238,6 +303,7 @@ func (p *Poller) recordUnknown(ctx context.Context, sc script.Script) {
 	idAttr := otelmetric.WithAttributes(attribute.String("id", sc.ID))
 	p.Metrics.Errors.Add(ctx, 1, idAttr)
 	p.Metrics.UnlockStatus.Record(ctx, StatusUnknown, idAttr)
+	p.Metrics.clearResult(sc.ID)
 }
 
 func debugStack() []byte {

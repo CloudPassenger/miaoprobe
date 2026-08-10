@@ -221,6 +221,15 @@ Exposed metrics:
   ```promql
   miaoprobe_unlock_status * on(id) group_left(name, region, tags) miaoprobe_script_info
   ```
+- `miaoprobe_probe_result_info{id,region}` — gauge, always `1`, carrying the
+  dynamically detected region from the latest successful probe. This is
+  separate from the script configuration's static `region` label.
+- `miaoprobe_probe_extra_info{id,region,key,label,value,type,unit}` — gauge,
+  always `1`, carrying each entry in the latest successful probe result's
+  `extra` list. For example, scripts can expose IP quality with
+  `key="ip_quality"` and query its current value remotely through Prometheus
+  or an OTLP backend. These dynamic information metrics are observable gauges,
+  so changed values replace rather than accumulate alongside old series.
 - `miaoprobe_last_success_timestamp_seconds{id}` — gauge, Unix time of the
   last run that produced a usable status. Alert on staleness rather than
   trusting the status value alone:

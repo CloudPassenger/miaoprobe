@@ -134,6 +134,45 @@ func TestStatusSeriesCarriesOnlyIDLabel(t *testing.T) {
 	}
 }
 
+func TestProbeResultInfoExportsCurrentRegionAndExtra(t *testing.T) {
+	sc := script.Script{
+		ID: "netflix",
+		Source: `module.exports = function() {
+			return {
+				text: "ok",
+				status: "unlocked",
+				region: "US",
+				extra: [
+					{key: "ip_quality", label: "IP quality", value: "residential", type: "string"},
+					{key: "score", label: "Score", value: 98, type: "percent", unit: "%"}
+				]
+			};
+		};`,
+	}
+	p, scrape := newTestPoller(t, []script.Script{sc})
+	pollCycle(t, p)
+
+	out := scrape()
+	mustLine(t, out, `miaoprobe_probe_result_info{id="netflix",region="US"} 1`)
+	mustLine(t, out, `miaoprobe_probe_extra_info{id="netflix",key="ip_quality",label="IP quality",region="US",type="string",unit="",value="residential"} 1`)
+	mustLine(t, out, `miaoprobe_probe_extra_info{id="netflix",key="score",label="Score",region="US",type="percent",unit="%",value="98"} 1`)
+
+	// Observable gauges emit only the latest snapshot, preventing a changed
+	// quality value from leaving an old series behind.
+	p.Scripts[0].Source = `module.exports = function() {
+		return {text: "ok", status: "unlocked", region: "JP", extra: [{key: "ip_quality", value: "datacenter"}]};
+	};`
+	p.runner = nil
+	pollCycle(t, p)
+
+	out = scrape()
+	mustLine(t, out, `miaoprobe_probe_result_info{id="netflix",region="JP"} 1`)
+	mustLine(t, out, `miaoprobe_probe_extra_info{id="netflix",key="ip_quality",label="",region="JP",type="",unit="",value="datacenter"} 1`)
+	if strings.Contains(out, `value="residential"`) || strings.Contains(out, `key="score"`) {
+		t.Fatalf("stale extra metrics still served:\n%s", out)
+	}
+}
+
 // LastSuccess is what lets operators alert on staleness rather than
 // trusting a possibly-frozen status value.
 func TestLastSuccessRecordedOnSuccessOnly(t *testing.T) {
