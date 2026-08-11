@@ -20,11 +20,11 @@ import (
 
 // serveOpts holds the flags for the serve subcommand.
 type serveOpts struct {
-	proxyRaw, listen  string
-	interval, timeout time.Duration
-	concurrency       int
-	scripts           []script.Script
-	filterSpec        script.FilterSpec
+	proxyRaw, listen, startupURL      string
+	interval, timeout, startupTimeout time.Duration
+	concurrency                       int
+	scripts                           []script.Script
+	filterSpec                        script.FilterSpec
 
 	runtimeMetrics bool
 
@@ -64,6 +64,8 @@ func newServeCommand() *cobra.Command {
 	cmd.Flags().StringVar(&filterRaw, "filter", "", `script selection, e.g. "category:media,ai;region:hk,us;id:netflix;mode:exclude" (see "miaoprobe list" and README.md#configuration)`)
 	cmd.Flags().DurationVar(&o.interval, "probe.interval", 5*time.Minute, "polling interval")
 	cmd.Flags().DurationVar(&o.timeout, "probe.timeout", 30*time.Second, "per-script execution timeout")
+	cmd.Flags().DurationVar(&o.startupTimeout, "probe.startup.timeout", 0, "maximum time to wait for network readiness before probing (0 = disabled)")
+	cmd.Flags().StringVar(&o.startupURL, "probe.startup.url", network.DefaultStartupURL, "URL used to verify startup network readiness")
 	cmd.Flags().IntVar(&o.concurrency, "probe.concurrency", exporter.DefaultConcurrency, "how many scripts to probe in parallel")
 	cmd.Flags().StringVar(&o.listen, "metrics.listen", ":9765", "address to expose /metrics on")
 	cmd.Flags().BoolVar(&o.runtimeMetrics, "metrics.runtime", true, "also export Go runtime and process metrics (goroutines, heap, GC, open fds, resident memory) for diagnosing miaoprobe itself")
@@ -93,6 +95,9 @@ func runServe(o serveOpts, logger *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if err := network.WaitForConnectivity(ctx, proxyCfg, o.startupURL, o.startupTimeout, logger); err != nil {
+		return err
+	}
 
 	provider, err := otelsetup.New(ctx, otelsetup.Config{
 		ServiceName:            "miaoprobe",

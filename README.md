@@ -131,12 +131,21 @@ go build -o miaoprobe ./cmd/miaoprobe
 | `--probe.proxy`   | ``      | `http://host:port` / `https://host:port` / `socks5://host:port`; empty = direct |
 | `--filter`  | ``      | script selection, see [Selecting scripts](#selecting-scripts---filter) |
 | `--probe.timeout` | `30s`   | per-script execution timeout                               |
+| `--probe.startup.timeout` | `0s` | wait for network readiness before probing; zero disables the gate |
+| `--probe.startup.url` | `https://cp.cloudflare.com/generate_204` | URL checked through the configured direct or proxy path |
 | `--output.format`  | `table` | `table` (colorized box-drawing table) or `json`             |
 
 `--probe.timeout` is a hard deadline: it cancels a script's in-flight `fetch()` as
 well as interrupting its JavaScript. A script's own `fetch()` `timeout`
 parameter is additionally clamped to 30s per attempt (with `retry` capped at
 10, as before), so no single script can stall a run indefinitely.
+
+When `--probe.startup.timeout` is positive, miaoprobe checks the startup URL
+through the same direct, HTTP(S)-proxy, or SOCKS5 path used by script
+`fetch()`. It retries once per second, starts probing immediately after a
+successful `2xx`/`3xx` response, and exits non-zero if the timeout expires.
+This avoids recording an all-failed first cycle while a local proxy or network
+interface is still starting.
 
 ## Serve mode: Prometheus exporter + OpenTelemetry push
 
@@ -157,6 +166,8 @@ parameter is additionally clamped to 30s per attempt (with `retry` capped at
 | `--filter`   | ``      | same as `check`                                 |
 | `--probe.interval` | `5m`    | polling interval (duration format, e.g. `30s`, `5m`) |
 | `--probe.timeout`  | `30s`   | per-script execution timeout                    |
+| `--probe.startup.timeout` | `0s` | same startup network gate as `check` |
+| `--probe.startup.url` | `https://cp.cloudflare.com/generate_204` | readiness URL checked through the probe egress path |
 | `--probe.concurrency` | `8`  | how many scripts to probe in parallel           |
 | `--metrics.listen`   | `:9765` | address `/metrics` is served on                 |
 | `--metrics.runtime` | `true` | also export Go runtime/process metrics (`go_*`, `process_*`) for diagnosing miaoprobe itself |
@@ -411,6 +422,13 @@ Precedence, highest to lowest:
 3. YAML config file
 4. flag default
 
+When miaoprobe runs in Docker or Podman, `127.0.0.1` refers to the container,
+not the host. If the host proxy is bound only to `127.0.0.1`, use host
+networking (and remove the Compose `ports` mapping). If the proxy listens on a
+host-reachable address, use `http://host.docker.internal:PORT` with the
+Compose `extra_hosts` mapping, or `http://host.containers.internal:PORT`
+under Podman.
+
 Flag names are grouped by concern, and that grouping *is* the config
 structure — one name for all three sources:
 
@@ -418,7 +436,7 @@ structure — one name for all three sources:
 |-------|-------|-------|
 | `log.*` | `level`, `format` | all commands |
 | `output.*` | `format` | `list`, `check` |
-| `probe.*` | `proxy`, `timeout`, `interval`, `concurrency` | `check`, `serve` (the last two are serve-only) |
+| `probe.*` | `proxy`, `timeout`, `startup.timeout`, `startup.url`, `interval`, `concurrency` | `check`, `serve` (`interval` and `concurrency` are serve-only) |
 | `metrics.*` | `listen` | `serve` |
 | `otel.*` | `instance`, `endpoint`, `protocol`, `headers`, `insecure`, `interval` | `serve` |
 | *(ungrouped)* | `config`, `scripts`, `filter` | all commands |
@@ -456,6 +474,9 @@ log:
 probe:
   proxy: socks5://127.0.0.1:1080
   interval: 5m
+  startup:
+    timeout: 15s
+    url: https://cp.cloudflare.com/generate_204
 otel:
   instance: hk-edge-01
   endpoint: https://otlp-gateway-prod-xx.grafana.net/otlp

@@ -62,6 +62,13 @@ probe:
   # in-flight fetch() as well as interrupting its JavaScript.
   timeout: 30s
 
+  startup:
+    # Maximum time to wait for the configured egress path to become ready
+    # before running scripts. Zero disables the startup connectivity gate.
+    timeout: 0s
+    # Checked through the same direct or proxy path used by script fetch().
+    url: https://cp.cloudflare.com/generate_204
+
   # --- serve only ---
 
   # polling interval

@@ -23,8 +23,8 @@ import (
 )
 
 func newCheckCommand() *cobra.Command {
-	var scriptsPath, proxyRaw, filterRaw, format string
-	var timeout time.Duration
+	var scriptsPath, proxyRaw, filterRaw, format, startupURL string
+	var timeout, startupTimeout time.Duration
 
 	cmd := &cobra.Command{
 		Use:   "check",
@@ -42,7 +42,7 @@ func newCheckCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runCheck(cmd.Context(), scripts, proxyRaw, filterSpec, format, timeout, logger)
+			return runCheck(cmd.Context(), scripts, proxyRaw, filterSpec, format, timeout, startupURL, startupTimeout, logger)
 		},
 	}
 
@@ -50,17 +50,21 @@ func newCheckCommand() *cobra.Command {
 	cmd.Flags().StringVar(&proxyRaw, "probe.proxy", "", "egress proxy: http://host:port or socks5://host:port (empty = direct)")
 	cmd.Flags().StringVar(&filterRaw, "filter", "", `script selection, e.g. "category:media,ai;region:hk,us;id:netflix;mode:exclude" (see "miaoprobe list" and README.md#configuration)`)
 	cmd.Flags().DurationVar(&timeout, "probe.timeout", 30*time.Second, "per-script execution timeout")
+	cmd.Flags().DurationVar(&startupTimeout, "probe.startup.timeout", 0, "maximum time to wait for network readiness before probing (0 = disabled)")
+	cmd.Flags().StringVar(&startupURL, "probe.startup.url", network.DefaultStartupURL, "URL used to verify startup network readiness")
 	cmd.Flags().StringVar(&format, "output.format", "table", "output format: table or json")
 
 	return cmd
 }
 
-func runCheck(ctx context.Context, scripts []script.Script, proxyRaw string, filterSpec script.FilterSpec, format string, timeout time.Duration, logger *slog.Logger) error {
+func runCheck(ctx context.Context, scripts []script.Script, proxyRaw string, filterSpec script.FilterSpec, format string, timeout time.Duration, startupURL string, startupTimeout time.Duration, logger *slog.Logger) error {
 	proxyCfg, err := network.ParseProxy(proxyRaw)
 	if err != nil {
 		return err
 	}
-
+	if err := network.WaitForConnectivity(ctx, proxyCfg, startupURL, startupTimeout, logger); err != nil {
+		return err
+	}
 	scripts = script.Select(scripts, filterSpec)
 	sort.SliceStable(scripts, func(i, j int) bool { return scripts[i].Priority < scripts[j].Priority })
 

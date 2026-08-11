@@ -15,10 +15,13 @@ services:
       - .env
     ports:
       - "9765:9765"
-    # Uncomment to probe through an external egress proxy already running
-    # on the host or in another container, instead of MP_PROBE_PROXY
-    # pointing elsewhere.
-    # network_mode: "service:proxy"
+    # A proxy bound only to the host's 127.0.0.1 requires host networking;
+    # uncomment network_mode below and remove the ports mapping above.
+    # network_mode: host
+    # For a proxy listening on a host-reachable address, this alias works on
+    # Docker. Podman also provides host.containers.internal automatically.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
     # The image bundles the latest miaospeed-scripts nightly, so MP_SCRIPTS
     # is optional. To use your own scripts instead, mount them read-only
