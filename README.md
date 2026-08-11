@@ -206,6 +206,20 @@ label, so it can be queried directly:
 miaoprobe_unlock_status{instance="hk-edge-01"}
 ```
 
+Every OTLP export also carries build metadata as resource attributes:
+
+- `service.version` — the GoReleaser version (`0.1.2`, `nightly-<sha>`, or
+  `dev` for an ordinary local build).
+- `vcs.ref.head.revision` — the Git commit baked into the binary.
+- `miaoprobe.build.date` — the GoReleaser build timestamp.
+- `miaoprobe.scripts.embedded.version` — the scripts baked into the binary;
+  this does not claim to identify an external directory passed with
+  `--scripts`.
+
+These are resource attributes, not labels added to every business metric.
+That keeps status series stable across upgrades while still allowing OTLP
+backends to filter and group deployments by version.
+
 ### Pushing to Grafana Cloud
 
 Grafana Cloud's OTLP gateway accepts metrics directly, no collector
@@ -224,6 +238,11 @@ required. Find the endpoint and generate an API token under your stack's
 scrape and the Grafana Cloud push can both run off the same poll cycle.
 
 Exposed metrics:
+
+- `miaoprobe_build_info{version,revision,build_date,embedded_scripts_version}`
+  — gauge, always `1`, identifying the running binary and its embedded script
+  bundle. This is separate from the OTLP resource because the local
+  Prometheus exporter intentionally does not expose OTel `target_info`.
 
 - `miaoprobe_unlock_status{id}` — gauge, taken from the script's explicit
   `status` field when set, otherwise mapped from the `background` RGB result

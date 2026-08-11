@@ -95,13 +95,17 @@ func runServe(o serveOpts, logger *slog.Logger) error {
 	defer stop()
 
 	provider, err := otelsetup.New(ctx, otelsetup.Config{
-		ServiceName:       "miaoprobe",
-		ServiceInstanceID: o.otelInstance,
-		OTLPEndpoint:      o.otelEndpoint,
-		OTLPProtocol:      o.otelProtocol,
-		OTLPHeaders:       otelHeaders,
-		OTLPInsecure:      o.otelInsecure,
-		OTLPInterval:      o.otelInterval,
+		ServiceName:            "miaoprobe",
+		ServiceInstanceID:      o.otelInstance,
+		ServiceVersion:         version,
+		ServiceRevision:        commit,
+		BuildDate:              date,
+		EmbeddedScriptsVersion: script.EmbeddedVersion(),
+		OTLPEndpoint:           o.otelEndpoint,
+		OTLPProtocol:           o.otelProtocol,
+		OTLPHeaders:            otelHeaders,
+		OTLPInsecure:           o.otelInsecure,
+		OTLPInterval:           o.otelInterval,
 
 		RuntimeMetrics: o.runtimeMetrics,
 	})

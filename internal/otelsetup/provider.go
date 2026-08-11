@@ -29,6 +29,17 @@ type Config struct {
 	// attribute. When empty, an ID supplied by the standard OTel resource
 	// environment is preserved; otherwise the host name is used.
 	ServiceInstanceID string
+	// ServiceVersion is reported as the standard service.version resource
+	// attribute and as the version label on miaoprobe_build_info.
+	ServiceVersion string
+	// ServiceRevision is reported as vcs.ref.head.revision and as the
+	// revision label on miaoprobe_build_info.
+	ServiceRevision string
+	// BuildDate is reported as miaoprobe.build.date and on build_info.
+	BuildDate string
+	// EmbeddedScriptsVersion identifies the scripts baked into this binary.
+	// It remains distinct from scripts loaded through --scripts.
+	EmbeddedScriptsVersion string
 
 	// OTLPEndpoint is the remote OpenTelemetry endpoint to push metrics to,
 	// e.g. "https://otlp-gateway-prod-xx.grafana.net/otlp" (http/protobuf)
@@ -75,6 +86,9 @@ func New(ctx context.Context, cfg Config) (*Provider, error) {
 	instanceID, _ := res.Set().Value(semconv.ServiceInstanceIDKey)
 
 	reg := prometheus.NewRegistry()
+	if err := registerBuildInfo(reg, cfg); err != nil {
+		return nil, fmt.Errorf("otelsetup: register build info: %w", err)
+	}
 	promExporter, err := otelprom.New(
 		otelprom.WithRegisterer(reg),
 		otelprom.WithoutTargetInfo(),
@@ -126,10 +140,21 @@ func New(ctx context.Context, cfg Config) (*Provider, error) {
 
 func buildResource(base *resource.Resource, cfg Config, hostname string) (*resource.Resource, error) {
 	attrs := []attribute.KeyValue{semconv.ServiceName(cfg.ServiceName)}
+	if value := strings.TrimSpace(cfg.ServiceVersion); value != "" {
+		attrs = append(attrs, semconv.ServiceVersion(value))
+	}
+	if value := strings.TrimSpace(cfg.ServiceRevision); value != "" {
+		attrs = append(attrs, attribute.String("vcs.ref.head.revision", value))
+	}
+	if value := strings.TrimSpace(cfg.BuildDate); value != "" {
+		attrs = append(attrs, attribute.String("miaoprobe.build.date", value))
+	}
+	if value := strings.TrimSpace(cfg.EmbeddedScriptsVersion); value != "" {
+		attrs = append(attrs, attribute.String("miaoprobe.scripts.embedded.version", value))
+	}
 	if instanceID := strings.TrimSpace(cfg.ServiceInstanceID); instanceID != "" {
 		attrs = append(attrs, semconv.ServiceInstanceID(instanceID))
 	}
-
 	res, err := resource.Merge(base, resource.NewSchemaless(attrs...))
 	if err != nil {
 		return nil, err
@@ -143,6 +168,29 @@ func buildResource(base *resource.Resource, cfg Config, hostname string) (*resou
 		return nil, errors.New("host name is empty and no service instance ID was configured")
 	}
 	return resource.Merge(res, resource.NewSchemaless(semconv.ServiceInstanceID(hostname)))
+}
+
+func registerBuildInfo(reg prometheus.Registerer, cfg Config) error {
+	labels := prometheus.Labels{
+		"version":                  buildInfoValue(cfg.ServiceVersion, "unknown"),
+		"revision":                 buildInfoValue(cfg.ServiceRevision, "unknown"),
+		"build_date":               buildInfoValue(cfg.BuildDate, "unknown"),
+		"embedded_scripts_version": strings.TrimSpace(cfg.EmbeddedScriptsVersion),
+	}
+	collector := prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace:   "miaoprobe",
+		Name:        "build_info",
+		Help:        "Build and embedded script metadata for this miaoprobe process; always 1.",
+		ConstLabels: labels,
+	}, func() float64 { return 1 })
+	return reg.Register(collector)
+}
+
+func buildInfoValue(value, fallback string) string {
+	if value = strings.TrimSpace(value); value != "" {
+		return value
+	}
+	return fallback
 }
 
 // Shutdown flushes any buffered metrics and releases resources, including

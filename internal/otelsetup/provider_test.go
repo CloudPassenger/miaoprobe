@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
@@ -85,6 +86,76 @@ func TestBuildResourceServiceInstanceID(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildResourceMetadata(t *testing.T) {
+	res, err := buildResource(resource.Empty(), Config{
+		ServiceName:            "miaoprobe",
+		ServiceVersion:         "0.1.2",
+		ServiceRevision:        "abc123",
+		BuildDate:              "2026-08-11T14:20:00Z",
+		EmbeddedScriptsVersion: "nightly@def456",
+	}, "host-a")
+	if err != nil {
+		t.Fatalf("buildResource: %v", err)
+	}
+
+	wants := map[attribute.Key]string{
+		semconv.ServiceVersionKey:                           "0.1.2",
+		attribute.Key("vcs.ref.head.revision"):              "abc123",
+		attribute.Key("miaoprobe.build.date"):               "2026-08-11T14:20:00Z",
+		attribute.Key("miaoprobe.scripts.embedded.version"): "nightly@def456",
+	}
+	for key, want := range wants {
+		got, ok := res.Set().Value(key)
+		if !ok || got.AsString() != want {
+			t.Errorf("resource attribute %q = %q, %v, want %q, true", key, got.AsString(), ok, want)
+		}
+	}
+}
+
+func TestBuildInfoMetric(t *testing.T) {
+	p, err := New(context.Background(), Config{
+		ServiceName:            "miaoprobe",
+		ServiceVersion:         "0.1.2",
+		ServiceRevision:        "abc123",
+		BuildDate:              "2026-08-11T14:20:00Z",
+		EmbeddedScriptsVersion: "nightly@def456",
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer p.Shutdown(context.Background())
+
+	mfs, err := p.Registry.Gather()
+	if err != nil {
+		t.Fatalf("Gather: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() != "miaoprobe_build_info" {
+			continue
+		}
+		metrics := mf.GetMetric()
+		if len(metrics) != 1 || metrics[0].GetGauge().GetValue() != 1 {
+			t.Fatalf("unexpected build_info metrics: %+v", metrics)
+		}
+		labels := make(map[string]string, len(metrics[0].GetLabel()))
+		for _, label := range metrics[0].GetLabel() {
+			labels[label.GetName()] = label.GetValue()
+		}
+		wants := map[string]string{
+			"version": "0.1.2", "revision": "abc123",
+			"build_date":               "2026-08-11T14:20:00Z",
+			"embedded_scripts_version": "nightly@def456",
+		}
+		for key, want := range wants {
+			if labels[key] != want {
+				t.Errorf("build_info label %q = %q, want %q", key, labels[key], want)
+			}
+		}
+		return
+	}
+	t.Fatal("miaoprobe_build_info metric not found")
 }
 
 func gatherNames(t *testing.T, p *Provider) map[string]bool {
