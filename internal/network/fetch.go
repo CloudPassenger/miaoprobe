@@ -15,6 +15,10 @@ type FetchOptions struct {
 	Proxy       *ProxyConfig
 	DialTimeout time.Duration
 	Logger      *slog.Logger
+	// ReportFailure receives client-construction errors and the final error
+	// after a request exhausts all retries. It is never called for transient
+	// attempts that are followed by a successful response.
+	ReportFailure func(error)
 
 	// Context bounds every request issued by the returned fetch function.
 	// Cancelling it (process shutdown, per-probe deadline) aborts in-flight
@@ -98,6 +102,9 @@ func FetchFactory(vm *goja.Runtime, opts FetchOptions) func(call goja.FunctionCa
 		proxyCfg := opts.Proxy
 		client, err := NewClient(proxyCfg, useHost, sni, dialTimeout)
 		if err != nil {
+			if opts.ReportFailure != nil {
+				opts.ReportFailure(err)
+			}
 			logger.Warn("failed to build http client", "url", url, "err", err)
 			return goja.Null()
 		}
@@ -109,7 +116,7 @@ func FetchFactory(vm *goja.Runtime, opts FetchOptions) func(call goja.FunctionCa
 
 		// Body is already closed inside doRequest (internal/network/request.go);
 		// the linter cannot see across the RequestWithRetry->doRequest boundary.
-		respBody, resp, redirects := RequestWithRetry(baseCtx, client, retry, timeout, &RequestOptions{ //nolint:bodyclose
+		respBody, resp, redirects, requestErr := RequestWithRetry(baseCtx, client, retry, timeout, &RequestOptions{ //nolint:bodyclose
 			Method:  method,
 			URL:     url,
 			Headers: headers,
@@ -118,6 +125,9 @@ func FetchFactory(vm *goja.Runtime, opts FetchOptions) func(call goja.FunctionCa
 			NoRedir: noRedir,
 			SNI:     sni,
 		}, logger)
+		if requestErr != nil && opts.ReportFailure != nil {
+			opts.ReportFailure(requestErr)
+		}
 
 		if resp == nil {
 			return goja.Null()

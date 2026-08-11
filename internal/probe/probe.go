@@ -18,10 +18,11 @@ import (
 
 // Outcome is the result of running one script's handler once.
 type Outcome struct {
-	Script   script.Script
-	Result   engine.Result
-	Duration time.Duration
-	Err      error
+	Script     script.Script
+	Result     engine.Result
+	Duration   time.Duration
+	Err        error
+	RequestErr error
 }
 
 // Run builds a fresh goja VM with fetch() bound to proxy (nil = direct
@@ -98,13 +99,17 @@ func run(ctx context.Context, sc script.Script, prog *goja.Program, proxy *netwo
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
+	var requestErr error
 
 	vm, err := engine.New(func(vm *goja.Runtime) func(goja.FunctionCall) goja.Value {
-		return network.FetchFactory(vm, network.FetchOptions{Proxy: proxy, Logger: scLogger, Context: ctx})
+		return network.FetchFactory(vm, network.FetchOptions{
+			Proxy: proxy, Logger: scLogger, Context: ctx,
+			ReportFailure: func(err error) { requestErr = err },
+		})
 	}, scLogger)
 	if err != nil {
 		scLogger.Error("failed to initialize engine", "err", err)
-		return Outcome{Script: sc, Err: err, Duration: time.Since(start)}
+		return Outcome{Script: sc, Err: err, RequestErr: requestErr, Duration: time.Since(start)}
 	}
 
 	res, err := engine.RunProgram(vm, prog, timeout)
@@ -114,5 +119,5 @@ func run(ctx context.Context, sc script.Script, prog *goja.Program, proxy *netwo
 	} else {
 		scLogger.Debug("script finished", "duration", duration, "status", res.Status, "background", res.Background, "region", res.Region)
 	}
-	return Outcome{Script: sc, Result: res, Err: err, Duration: duration}
+	return Outcome{Script: sc, Result: res, Err: err, RequestErr: requestErr, Duration: duration}
 }

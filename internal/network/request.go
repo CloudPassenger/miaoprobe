@@ -110,12 +110,12 @@ func doRequest(ctx context.Context, client *http.Client, opt *RequestOptions) ([
 // RequestWithRetry sends the request up to retry times (clamped to [1,10]),
 // waiting timeoutMs milliseconds (clamped to MaxRequestTimeoutMs) for each
 // attempt, and returns the first successful response. If every attempt
-// fails, resp is nil.
+// fails, resp is nil and the final request error is returned.
 //
 // Each attempt's deadline is derived from ctx, so cancelling ctx (process
 // shutdown, or the per-probe deadline) aborts the in-flight request and
 // stops further retries instead of running to completion.
-func RequestWithRetry(ctx context.Context, client *http.Client, retry int, timeoutMs int64, opt *RequestOptions, logger *slog.Logger) ([]byte, *http.Response, []string) {
+func RequestWithRetry(ctx context.Context, client *http.Client, retry int, timeoutMs int64, opt *RequestOptions, logger *slog.Logger) ([]byte, *http.Response, []string, error) {
 	retry = clampInt(retry, 1, 10)
 	timeoutMs = clampTimeoutMs(timeoutMs)
 	if logger == nil {
@@ -125,9 +125,11 @@ func RequestWithRetry(ctx context.Context, client *http.Client, retry int, timeo
 	var body []byte
 	var resp *http.Response
 	var redirects []string
+	var lastErr error
 
 	for i := 0; resp == nil && i < retry; i++ {
 		if err := ctx.Err(); err != nil {
+			lastErr = err
 			logger.Debug("http request canceled before attempt", "method", opt.Method, "url", opt.URL, "attempt", i+1, "err", err)
 			break
 		}
@@ -139,20 +141,21 @@ func RequestWithRetry(ctx context.Context, client *http.Client, retry int, timeo
 		cancel()
 
 		if err != nil {
+			lastErr = err
 			logger.Debug("http request attempt failed", "method", opt.Method, "url", opt.URL, "attempt", i+1, "err", err)
 			continue
 		}
 
-		body, resp, redirects = b, r, rd
+		body, resp, redirects, lastErr = b, r, rd, nil
 		logging.Trace(logger, "http response", "method", opt.Method, "url", opt.URL, "attempt", i+1,
 			"statusCode", r.StatusCode, "bodyBytes", len(b), "redirects", len(rd))
 	}
 
 	if resp == nil {
-		logger.Warn("http request exhausted retries", "method", opt.Method, "url", opt.URL, "retry", retry)
+		logger.Warn("http request exhausted retries", "method", opt.Method, "url", opt.URL, "retry", retry, "err", lastErr)
 	}
 
-	return body, resp, redirects
+	return body, resp, redirects, lastErr
 }
 
 // flattenHeaders converts an http.Header into a lowercase-keyed

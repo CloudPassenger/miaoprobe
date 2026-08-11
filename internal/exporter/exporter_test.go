@@ -2,6 +2,7 @@ package exporter
 
 import (
 	"context"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -170,6 +171,42 @@ func TestProbeResultInfoExportsCurrentRegionAndExtra(t *testing.T) {
 	mustLine(t, out, `miaoprobe_probe_extra_info{id="netflix",key="ip_quality",label="",region="JP",type="",unit="",value="datacenter"} 1`)
 	if strings.Contains(out, `value="residential"`) || strings.Contains(out, `key="score"`) {
 		t.Fatalf("stale extra metrics still served:\n%s", out)
+	}
+}
+
+func TestProbeFailureInfoReplacesAndClearsCurrentSnapshot(t *testing.T) {
+	sc := script.Script{
+		ID:     "netflix",
+		Source: `module.exports = function() { return {text: "failed", status: "failed"}; };`,
+	}
+	p, scrape := newTestPoller(t, []script.Script{sc})
+
+	pollCycle(t, p)
+	out := scrape()
+	mustLine(t, out, `miaoprobe_probe_failure_info{class="availability",id="netflix",reason="region_unavailable"} 1`)
+
+	srv := httptest.NewServer(nil)
+	url := srv.URL
+	srv.Close()
+	p.Scripts[0].Source = `module.exports = function() {
+		fetch("` + url + `", {retry: 1, timeout: 200});
+		return {text: "failed", status: "failed", error: "网络"};
+	};`
+	p.runner = nil
+	pollCycle(t, p)
+	out = scrape()
+	mustLine(t, out, `miaoprobe_probe_failure_info{class="network",id="netflix",reason="connection_refused"} 1`)
+	if strings.Contains(out, `reason="region_unavailable"`) {
+		t.Fatalf("stale availability failure still served:\n%s", out)
+	}
+
+	p.Scripts[0].Source = `module.exports = function() { return {text: "ok", status: "unlocked"}; };`
+	p.runner = nil
+	pollCycle(t, p)
+	out = scrape()
+	if strings.Contains(out, `miaoprobe_probe_failure_info{id="netflix"`) ||
+		strings.Contains(out, `id="netflix",reason=`) {
+		t.Fatalf("failure metric was not cleared after success:\n%s", out)
 	}
 }
 

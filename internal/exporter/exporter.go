@@ -40,9 +40,11 @@ type Metrics struct {
 	PollDuration otelmetric.Float64Gauge
 	ResultInfo   otelmetric.Int64ObservableGauge
 	ResultExtra  otelmetric.Int64ObservableGauge
+	ProbeFailure otelmetric.Int64ObservableGauge
 
 	resultMu sync.RWMutex
 	results  map[string]resultInfo
+	failures map[string]FailureInfo
 }
 
 // resultInfo holds dynamic data from the most recent successful probe. It is
@@ -72,7 +74,9 @@ func NewMetrics(meter otelmetric.Meter) (*Metrics, error) {
 		otelmetric.WithDescription("Dynamic result metadata from the latest successful probe; always 1"))
 	resultExtra, err8 := meter.Int64ObservableGauge("miaoprobe_probe_extra_info",
 		otelmetric.WithDescription("Extra fields from the latest successful probe; always 1"))
-	if err := errors.Join(err1, err2, err3, err4, err5, err6, err7, err8); err != nil {
+	probeFailure, err9 := meter.Int64ObservableGauge("miaoprobe_probe_failure_info",
+		otelmetric.WithDescription("Normalized current failure classification; always 1 with id, class and reason labels"))
+	if err := errors.Join(err1, err2, err3, err4, err5, err6, err7, err8, err9); err != nil {
 		return nil, fmt.Errorf("exporter: create instruments: %w", err)
 	}
 	m := &Metrics{
@@ -84,9 +88,11 @@ func NewMetrics(meter otelmetric.Meter) (*Metrics, error) {
 		PollDuration: pollDuration,
 		ResultInfo:   resultInfoGauge,
 		ResultExtra:  resultExtra,
+		ProbeFailure: probeFailure,
 		results:      make(map[string]resultInfo),
+		failures:     make(map[string]FailureInfo),
 	}
-	if _, err := meter.RegisterCallback(m.observeResults, resultInfoGauge, resultExtra); err != nil {
+	if _, err := meter.RegisterCallback(m.observeResults, resultInfoGauge, resultExtra, probeFailure); err != nil {
 		return nil, fmt.Errorf("exporter: register result observer: %w", err)
 	}
 	return m, nil
@@ -113,6 +119,13 @@ func (m *Metrics) observeResults(_ context.Context, observer otelmetric.Observer
 			))
 		}
 	}
+	for id, failure := range m.failures {
+		observer.ObserveInt64(m.ProbeFailure, 1, otelmetric.WithAttributes(
+			attribute.String("id", id),
+			attribute.String("class", failure.Class),
+			attribute.String("reason", failure.Reason),
+		))
+	}
 	return nil
 }
 
@@ -129,6 +142,18 @@ func (m *Metrics) clearResult(id string) {
 	m.resultMu.Lock()
 	defer m.resultMu.Unlock()
 	delete(m.results, id)
+}
+
+func (m *Metrics) setFailure(id string, failure FailureInfo) {
+	m.resultMu.Lock()
+	defer m.resultMu.Unlock()
+	m.failures[id] = failure
+}
+
+func (m *Metrics) clearFailure(id string) {
+	m.resultMu.Lock()
+	defer m.resultMu.Unlock()
+	delete(m.failures, id)
 }
 
 // DefaultConcurrency is the number of scripts polled in parallel when
@@ -271,10 +296,13 @@ func (p *Poller) probeAndRecord(ctx context.Context, sc script.Script, logger *s
 	if outcome.Err != nil {
 		p.Metrics.Errors.Add(ctx, 1, idAttr)
 		p.Metrics.clearResult(sc.ID)
+		failure, _ := ClassifyFailure(outcome)
+		p.Metrics.setFailure(sc.ID, failure)
 		// Report unknown rather than leaving the last good value in place:
 		// a script that starts failing must not keep looking "unlocked".
 		p.Metrics.UnlockStatus.Record(ctx, StatusUnknown, idAttr)
-		logger.Error("script execution error", "script", sc.ID, "err", outcome.Err)
+		logger.Error("script execution error", "script", sc.ID, "failure_class", failure.Class,
+			"failure_reason", failure.Reason, "err", outcome.Err)
 		return
 	}
 
@@ -295,6 +323,11 @@ func (p *Poller) probeAndRecord(ctx context.Context, sc script.Script, logger *s
 	p.Metrics.UnlockStatus.Record(ctx, value, idAttr)
 	p.Metrics.LastSuccess.Record(ctx, float64(time.Now().Unix()), idAttr)
 	p.Metrics.setResult(sc.ID, outcome.Result)
+	if failure, ok := ClassifyFailure(outcome); ok {
+		p.Metrics.setFailure(sc.ID, failure)
+	} else {
+		p.Metrics.clearFailure(sc.ID)
+	}
 }
 
 // recordUnknown marks a script's status as indeterminate, used when probing
@@ -304,6 +337,7 @@ func (p *Poller) recordUnknown(ctx context.Context, sc script.Script) {
 	p.Metrics.Errors.Add(ctx, 1, idAttr)
 	p.Metrics.UnlockStatus.Record(ctx, StatusUnknown, idAttr)
 	p.Metrics.clearResult(sc.ID)
+	p.Metrics.setFailure(sc.ID, FailureInfo{Class: FailureClassProbe, Reason: FailureReasonScriptError})
 }
 
 func debugStack() []byte {

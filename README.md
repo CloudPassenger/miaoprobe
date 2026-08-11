@@ -253,6 +253,14 @@ Exposed metrics:
   `key="ip_quality"` and query its current value remotely through Prometheus
   or an OTLP backend. These dynamic information metrics are observable gauges,
   so changed values replace rather than accumulate alongside old series.
+- `miaoprobe_probe_failure_info{id,class,reason}` — observable gauge, always
+  `1`, carrying the normalized current failure snapshot. Successful probes
+  remove the series instead of leaving stale reasons behind. `class` is one
+  of `availability`, `network`, `service`, or `probe`; `reason` is one of
+  `region_unavailable`, `timeout`, `dns`, `connection_refused`,
+  `connection_reset`, `unreachable`, `tls`, `proxy`, `connection_error`,
+  `ip_blocked`, `rate_limited`, `parse_error`, `unexpected_response`,
+  `script_error`, or `unknown`. Join on `id` when service metadata is needed.
 - `miaoprobe_last_success_timestamp_seconds{id}` — gauge, Unix time of the
   last run that produced a usable status. Alert on staleness rather than
   trusting the status value alone:
@@ -293,12 +301,13 @@ A ready-made dashboard and alert rules live in [`dashboards/`](dashboards):
 
 | File | What it is |
 |------|------------|
-| `miaoprobe-overview.json` | Grafana dashboard: status grid, history timeline, freshness and poll-cycle health |
+| `miaoprobe-overview.json` | Grafana dashboard v1: status grid, history timeline, freshness and poll-cycle health |
+| `miaoprobe-overview-v2.json` | Grafana dashboard v2: same status grid plus MediaUnlockTest-style additions — a status-distribution donut and "unlocked rate by category / detected region" bargauges |
 | `miaoprobe-alerts.yaml` | Prometheus/Mimir alert rules |
 | `miaoprobe-alerts-test.yaml` | `promtool` unit tests for those rules |
 
-Import the dashboard via **Dashboards → New → Import → Upload JSON file**,
-then pick your Prometheus data source. It has `Instance`, `Category` and
+Import either dashboard via **Dashboards → New → Import → Upload JSON file**,
+then pick your Prometheus data source. Both have `Instance`, `Category` and
 `Script` template variables, so one dashboard covers every probe you run.
 
 Load the alert rules into a self-hosted Prometheus with `rule_files:`, or
@@ -500,12 +509,17 @@ display; scripts that only set `text`/`background` are unaffected:
 - `region` (string): dynamically detected region (e.g. `"US"`), distinct
   from the script's static `regions` config in `index.json`.
 - `message` (string): a longer human-readable detail shown under `text`.
-- `error` (string): a business-level failure reason (e.g. "connection
-  timed out"), shown in the `ERROR` column/field alongside (not replacing)
-  Go-level execution errors.
+- `error` (string): a business-level failure category returned by the script,
+  shown in the `ERROR` column/field alongside (not replacing) Go-level
+  execution errors.
 - `extra` (array of `{key, label, value, type, unit}`): free-form
   additional metrics (e.g. an IP quality score), rendered as `label: value`
   in the CLI table and kept fully structured in `--output.format json`.
+
+`miaoprobe check --output.format json` additionally emits `failureClass` and
+`failureReason` when a result is failed or indeterminate. These fields use the
+same normalized values as `miaoprobe_probe_failure_info`; they are derived by
+miaoprobe and do not need to be added to individual scripts.
 
 ```sh
 make compat-test

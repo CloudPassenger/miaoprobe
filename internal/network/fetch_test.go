@@ -43,9 +43,12 @@ func TestFetchFactoryDirect(t *testing.T) {
 	}
 }
 
-func TestFetchFactoryFailureReturnsNull(t *testing.T) {
+func TestFetchFactoryFailureReturnsNullAndReportsError(t *testing.T) {
 	vm := goja.New()
-	fetch := FetchFactory(vm, FetchOptions{})
+	var reported error
+	fetch := FetchFactory(vm, FetchOptions{ReportFailure: func(err error) {
+		reported = err
+	}})
 	vm.Set("fetch", fetch)
 
 	v, err := vm.RunString(`fetch("http://127.0.0.1:1", {retry: 1, timeout: 200}) === null`)
@@ -54,6 +57,9 @@ func TestFetchFactoryFailureReturnsNull(t *testing.T) {
 	}
 	if !v.ToBoolean() {
 		t.Fatal("expected fetch to return null on failure")
+	}
+	if reported == nil {
+		t.Fatal("expected fetch to report the exhausted request error")
 	}
 }
 
@@ -134,8 +140,12 @@ func TestConcurrentRequestsShareClientSafely(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			//nolint:bodyclose // closed inside doRequest
-			_, resp, redirects := RequestWithRetry(context.Background(), client, 1, 3000,
+			_, resp, redirects, err := RequestWithRetry(context.Background(), client, 1, 3000,
 				&RequestOptions{Method: "GET", URL: srv.URL + "/from"}, nil)
+			if err != nil {
+				t.Errorf("request failed: %v", err)
+				return
+			}
 			if resp == nil {
 				t.Errorf("expected a response")
 				return

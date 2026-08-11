@@ -80,18 +80,20 @@ func runCheck(ctx context.Context, scripts []script.Script, proxyRaw string, fil
 }
 
 type checkRow struct {
-	ID         string              `json:"id"`
-	Name       string              `json:"name"`
-	Regions    []string            `json:"regions,omitempty"`
-	Tags       []string            `json:"tags,omitempty"`
-	Text       string              `json:"text,omitempty"`
-	Background string              `json:"background,omitempty"`
-	Status     string              `json:"status"`
-	Region     string              `json:"region,omitempty"`
-	Message    string              `json:"message,omitempty"`
-	Extra      []engine.ExtraField `json:"extra,omitempty"`
-	DurationMs int64               `json:"durationMs"`
-	Error      string              `json:"error,omitempty"`
+	ID            string              `json:"id"`
+	Name          string              `json:"name"`
+	Regions       []string            `json:"regions,omitempty"`
+	Tags          []string            `json:"tags,omitempty"`
+	Text          string              `json:"text,omitempty"`
+	Background    string              `json:"background,omitempty"`
+	Status        string              `json:"status"`
+	Region        string              `json:"region,omitempty"`
+	Message       string              `json:"message,omitempty"`
+	Extra         []engine.ExtraField `json:"extra,omitempty"`
+	DurationMs    int64               `json:"durationMs"`
+	Error         string              `json:"error,omitempty"`
+	FailureClass  string              `json:"failureClass,omitempty"`
+	FailureReason string              `json:"failureReason,omitempty"`
 }
 
 func toRow(o probe.Outcome) checkRow {
@@ -106,6 +108,10 @@ func toRow(o probe.Outcome) checkRow {
 		Message:    o.Result.Message,
 		Extra:      o.Result.Extra,
 		DurationMs: o.Duration.Milliseconds(),
+	}
+	if failure, ok := exporter.ClassifyFailure(o); ok {
+		row.FailureClass = failure.Class
+		row.FailureReason = failure.Reason
 	}
 	if o.Err != nil {
 		row.Status = "error"
