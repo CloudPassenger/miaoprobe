@@ -109,18 +109,19 @@ type ExtraField struct {
 }
 
 // Result is the parsed return value of a script's handler function. Text and
-// Background are the original miaospeed-scripts contract; Status, Region,
-// Message, Error and Extra are miaoprobe-specific additions that a script
-// may optionally return alongside them for richer display without breaking
-// scripts that only set {text, background}.
+// Background are the original miaospeed-scripts contract; Status,
+// StatusReason, Region, Message, Error and Extra are miaoprobe-specific
+// additions that a script may optionally return alongside them for richer
+// display without breaking scripts that only set {text, background}.
 type Result struct {
-	Text       string
-	Background string
-	Status     string // "unlocked" | "failed" | "warning" | "unknown" | "na"; falls back to Background classification when empty
-	Region     string // dynamically detected region, e.g. "US" (distinct from the script's static Regions config)
-	Message    string // human-readable detail shown alongside Text
-	Error      string // business-level error description (distinct from a Go-level execution error)
-	Extra      []ExtraField
+	Text         string
+	Background   string
+	Status       string // "unlocked" | "failed" | "warning" | "unknown" | "na"; falls back to Background classification when empty
+	StatusReason string // stable machine-readable explanation for a warning status
+	Region       string // dynamically detected region, e.g. "US" (distinct from the script's static Regions config)
+	Message      string // human-readable detail shown alongside Text
+	Error        string // business-level error description (distinct from a Go-level execution error)
+	Extra        []ExtraField
 }
 
 // ErrNoHandler is returned when a script exposes neither module.exports nor
@@ -129,9 +130,9 @@ var ErrNoHandler = errors.New("script does not export a handler function (expect
 
 // RunScript executes the script source in vm, resolves its handler
 // (module.exports, falling back to the global `handler`), invokes it, and
-// parses the resulting {text, background, status, region, message, error,
-// extra} object (all fields but text/background are optional). Both the
-// top-level script evaluation and the handler call are bounded by timeout.
+// parses the resulting {text, background, status, statusReason, region,
+// message, error, extra} object (all fields but text/background are
+// optional). Both execution phases are bounded by timeout.
 func RunScript(vm *goja.Runtime, source string, timeout time.Duration) (Result, error) {
 	prog, err := Compile("script.js", source)
 	if err != nil {
@@ -189,13 +190,14 @@ func parseResult(v goja.Value) (Result, error) {
 		return Result{}, errors.New("handler result is not an object")
 	}
 	return Result{
-		Text:       getString(obj, "text"),
-		Background: getString(obj, "background"),
-		Status:     getString(obj, "status"),
-		Region:     getString(obj, "region"),
-		Message:    getString(obj, "message"),
-		Error:      getString(obj, "error"),
-		Extra:      parseExtra(obj.Get("extra")),
+		Text:         getString(obj, "text"),
+		Background:   getString(obj, "background"),
+		Status:       getString(obj, "status"),
+		StatusReason: getString(obj, "statusReason"),
+		Region:       getString(obj, "region"),
+		Message:      getString(obj, "message"),
+		Error:        getString(obj, "error"),
+		Extra:        parseExtra(obj.Get("extra")),
 	}, nil
 }
 

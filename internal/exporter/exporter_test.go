@@ -190,7 +190,7 @@ func TestProbeFailureInfoReplacesAndClearsCurrentSnapshot(t *testing.T) {
 	srv.Close()
 	p.Scripts[0].Source = `module.exports = function() {
 		fetch("` + url + `", {retry: 1, timeout: 200});
-		return {text: "failed", status: "failed", error: "网络"};
+		return {text: "failed", status: "failed", error: "\u7f51\u7edc"};
 	};`
 	p.runner = nil
 	pollCycle(t, p)
@@ -207,6 +207,35 @@ func TestProbeFailureInfoReplacesAndClearsCurrentSnapshot(t *testing.T) {
 	if strings.Contains(out, `miaoprobe_probe_failure_info{id="netflix"`) ||
 		strings.Contains(out, `id="netflix",reason=`) {
 		t.Fatalf("failure metric was not cleared after success:\n%s", out)
+	}
+}
+
+func TestProbeWarningInfoReplacesAndClearsCurrentSnapshot(t *testing.T) {
+	sc := script.Script{
+		ID:     "netflix",
+		Source: `module.exports = function() { return {text: "originals", status: "warning", statusReason: "originals_only"}; };`,
+	}
+	p, scrape := newTestPoller(t, []script.Script{sc})
+
+	pollCycle(t, p)
+	out := scrape()
+	mustLine(t, out, `miaoprobe_probe_warning_info{class="restriction",id="netflix",reason="originals_only"} 1`)
+
+	p.Scripts[0].Source = `module.exports = function() { return {text: "blocked", status: "warning", statusReason: "waf_blocked"}; };`
+	p.runner = nil
+	pollCycle(t, p)
+	out = scrape()
+	mustLine(t, out, `miaoprobe_probe_warning_info{class="access",id="netflix",reason="waf_blocked"} 1`)
+	if strings.Contains(out, `reason="originals_only"`) {
+		t.Fatalf("stale restriction warning still served:\n%s", out)
+	}
+
+	p.Scripts[0].Source = `module.exports = function() { return {text: "ok", status: "unlocked"}; };`
+	p.runner = nil
+	pollCycle(t, p)
+	out = scrape()
+	if strings.Contains(out, `miaoprobe_probe_warning_info{`) {
+		t.Fatalf("warning metric was not cleared after success:\n%s", out)
 	}
 }
 

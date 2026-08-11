@@ -94,6 +94,8 @@ type checkRow struct {
 	Error         string              `json:"error,omitempty"`
 	FailureClass  string              `json:"failureClass,omitempty"`
 	FailureReason string              `json:"failureReason,omitempty"`
+	WarningClass  string              `json:"warningClass,omitempty"`
+	WarningReason string              `json:"warningReason,omitempty"`
 }
 
 func toRow(o probe.Outcome) checkRow {
@@ -112,6 +114,10 @@ func toRow(o probe.Outcome) checkRow {
 	if failure, ok := exporter.ClassifyFailure(o); ok {
 		row.FailureClass = failure.Class
 		row.FailureReason = failure.Reason
+	}
+	if warning, ok := exporter.ClassifyWarning(o); ok {
+		row.WarningClass = warning.Class
+		row.WarningReason = warning.Reason
 	}
 	if o.Err != nil {
 		row.Status = "error"

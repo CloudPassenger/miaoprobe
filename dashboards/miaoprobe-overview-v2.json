@@ -12,7 +12,7 @@
       }
     ]
   },
-  "description": "Streaming unlock status per script, MediaUnlockTest-style at-a-glance panels (status distribution, unlock rate by segment) on top of miaoprobe's freshness and poll-cycle health. Status values: 1=unlocked, 0.5=warning, 0=failed, -1=unknown/error.",
+  "description": "Streaming unlock status per script with structured Warning and failure breakdowns, unlock-rate segments, freshness, and poll-cycle health. The stable status gauge remains 1=unlocked, 0.5=warning, 0=failed, -1=unknown/error.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -28,7 +28,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Count of scripts in each status over time, stacked. Failed results are split into region/service unavailability, transport-level network failures, and other probe failures. Older agents without failure_info appear under Other failure.",
+      "description": "Count of scripts in each status over time, stacked. Warning results are split into restricted availability and WAF-blocked probes; failures are split into unavailability, network, and other causes. Older agents without detail metrics fall back to Restricted or Other failure.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -63,8 +63,12 @@
             "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
           },
           {
-            "matcher": { "id": "byName", "options": "Warning" },
+            "matcher": { "id": "byName", "options": "Restricted" },
             "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "WAF" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }]
           },
           {
             "matcher": { "id": "byName", "options": "Unavailable" },
@@ -104,11 +108,20 @@
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "editorMode": "code",
-          "expr": "count(miaoprobe_unlock_status{instance=~\"$instance\", id=~\"$script\"} == 0.5) or vector(0)",
+          "expr": "clamp_min(\n  (count(miaoprobe_unlock_status{instance=~\"$instance\", id=~\"$script\"} == 0.5) or vector(0))\n  - (count(\n      (miaoprobe_unlock_status{instance=~\"$instance\", id=~\"$script\"} == 0.5)\n        and on(job, instance, id)\n          miaoprobe_probe_warning_info{instance=~\"$instance\", id=~\"$script\", class=\"access\"}\n    ) or vector(0)),\n  0\n)",
           "instant": false,
-          "legendFormat": "Warning",
+          "legendFormat": "Restricted",
           "range": true,
           "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "editorMode": "code",
+          "expr": "count(\n  (miaoprobe_unlock_status{instance=~\"$instance\", id=~\"$script\"} == 0.5)\n    and on(job, instance, id)\n      miaoprobe_probe_warning_info{instance=~\"$instance\", id=~\"$script\", class=\"access\"}\n) or vector(0)",
+          "instant": false,
+          "legendFormat": "WAF",
+          "range": true,
+          "refId": "C"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -117,7 +130,7 @@
           "instant": false,
           "legendFormat": "Unavailable",
           "range": true,
-          "refId": "C"
+          "refId": "D"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -126,7 +139,7 @@
           "instant": false,
           "legendFormat": "Network",
           "range": true,
-          "refId": "D"
+          "refId": "E"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -135,7 +148,7 @@
           "instant": false,
           "legendFormat": "Other failure",
           "range": true,
-          "refId": "E"
+          "refId": "F"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -144,7 +157,7 @@
           "instant": false,
           "legendFormat": "Unknown",
           "range": true,
-          "refId": "F"
+          "refId": "G"
         }
       ],
       "title": "Status distribution over time",

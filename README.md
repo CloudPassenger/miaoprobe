@@ -261,6 +261,12 @@ Exposed metrics:
   `connection_reset`, `unreachable`, `tls`, `proxy`, `connection_error`,
   `ip_blocked`, `rate_limited`, `parse_error`, `unexpected_response`,
   `script_error`, or `unknown`. Join on `id` when service metadata is needed.
+- `miaoprobe_probe_warning_info{id,class,reason}` — observable gauge, always
+  `1`, carrying the normalized current warning snapshot. Non-warning results
+  remove the series. `class` is `access`, `restriction`, or `probe`; `reason`
+  is `waf_blocked`, `originals_only`, `overseas_only`, `partial_access`, or
+  `unknown`. Older scripts that omit `statusReason` safely map to
+  `restriction/partial_access`.
 - `miaoprobe_last_success_timestamp_seconds{id}` — gauge, Unix time of the
   last run that produced a usable status. Alert on staleness rather than
   trusting the status value alone:
@@ -302,7 +308,7 @@ A ready-made dashboard and alert rules live in [`dashboards/`](dashboards):
 | File | What it is |
 |------|------------|
 | `miaoprobe-overview.json` | Grafana dashboard v1: status grid, history timeline, freshness and poll-cycle health |
-| `miaoprobe-overview-v2.json` | Grafana dashboard v2: same status grid plus MediaUnlockTest-style additions — a status-distribution donut and "unlocked rate by category / detected region" bargauges |
+| `miaoprobe-overview-v2.json` | Grafana dashboard v2: stacked status trends split into Restricted, WAF blocked, Unavailable, Network and Other failure, plus unlocked-rate segment bargauges |
 | `miaoprobe-alerts.yaml` | Prometheus/Mimir alert rules |
 | `miaoprobe-alerts-test.yaml` | `promtool` unit tests for those rules |
 
@@ -506,6 +512,8 @@ display; scripts that only set `text`/`background` are unaffected:
 - `status` (string): `"unlocked" | "failed" | "warning" | "unknown" | "na"`.
   When present, this drives the `STATUS` column/`miaoprobe_unlock_status`
   value directly instead of reverse-mapping `background`'s RGB triplet.
+- `statusReason` (string): structured explanation for a warning status:
+  `"waf_blocked" | "originals_only" | "overseas_only" | "partial_access"`.
 - `region` (string): dynamically detected region (e.g. `"US"`), distinct
   from the script's static `regions` config in `index.json`.
 - `message` (string): a longer human-readable detail shown under `text`.
@@ -517,9 +525,10 @@ display; scripts that only set `text`/`background` are unaffected:
   in the CLI table and kept fully structured in `--output.format json`.
 
 `miaoprobe check --output.format json` additionally emits `failureClass` and
-`failureReason` when a result is failed or indeterminate. These fields use the
-same normalized values as `miaoprobe_probe_failure_info`; they are derived by
-miaoprobe and do not need to be added to individual scripts.
+`failureReason` for failed or indeterminate results, and `warningClass` and
+`warningReason` for warning results. These fields use the same normalized
+values as the corresponding `miaoprobe_probe_*_info` metrics; individual
+scripts only need to provide `statusReason` for warning results.
 
 ```sh
 make compat-test

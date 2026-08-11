@@ -20,3 +20,14 @@ func TestToRowIncludesNormalizedFailure(t *testing.T) {
 		t.Fatalf("unexpected row: %+v", row)
 	}
 }
+
+func TestToRowIncludesNormalizedWarning(t *testing.T) {
+	row := toRow(probe.Outcome{
+		Script: script.Script{ID: "netflix", Name: "Netflix"},
+		Result: engine.Result{Status: "warning", StatusReason: "originals_only"},
+	})
+
+	if row.Status != "warning" || row.WarningClass != "restriction" || row.WarningReason != "originals_only" {
+		t.Fatalf("unexpected row: %+v", row)
+	}
+}

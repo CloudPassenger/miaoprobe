@@ -65,7 +65,8 @@ func TestRunScriptExtendedFields(t *testing.T) {
 			return {
 				text: "US (Originals Only)",
 				background: "186,230,126",
-				status: "unlocked",
+				status: "warning",
+				statusReason: "originals_only",
 				region: "US",
 				message: "matched via homepage redirect",
 				extra: [
@@ -79,7 +80,7 @@ func TestRunScriptExtendedFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunScript: %v", err)
 	}
-	if res.Status != "unlocked" || res.Region != "US" || res.Message == "" {
+	if res.Status != "warning" || res.StatusReason != "originals_only" || res.Region != "US" || res.Message == "" {
 		t.Fatalf("unexpected result: %+v", res)
 	}
 	if len(res.Extra) != 2 || res.Extra[0].Key != "ip_quality" || res.Extra[0].Value != int64(87) {
@@ -98,7 +99,7 @@ func TestRunScriptMinimalFieldsStillWork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunScript: %v", err)
 	}
-	if res.Status != "" || res.Region != "" || res.Message != "" || res.Error != "" || res.Extra != nil {
+	if res.Status != "" || res.StatusReason != "" || res.Region != "" || res.Message != "" || res.Error != "" || res.Extra != nil {
 		t.Fatalf("expected zero-value optional fields, got %+v", res)
 	}
 }

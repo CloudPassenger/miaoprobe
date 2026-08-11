@@ -41,10 +41,12 @@ type Metrics struct {
 	ResultInfo   otelmetric.Int64ObservableGauge
 	ResultExtra  otelmetric.Int64ObservableGauge
 	ProbeFailure otelmetric.Int64ObservableGauge
+	ProbeWarning otelmetric.Int64ObservableGauge
 
 	resultMu sync.RWMutex
 	results  map[string]resultInfo
 	failures map[string]FailureInfo
+	warnings map[string]WarningInfo
 }
 
 // resultInfo holds dynamic data from the most recent successful probe. It is
@@ -76,7 +78,9 @@ func NewMetrics(meter otelmetric.Meter) (*Metrics, error) {
 		otelmetric.WithDescription("Extra fields from the latest successful probe; always 1"))
 	probeFailure, err9 := meter.Int64ObservableGauge("miaoprobe_probe_failure_info",
 		otelmetric.WithDescription("Normalized current failure classification; always 1 with id, class and reason labels"))
-	if err := errors.Join(err1, err2, err3, err4, err5, err6, err7, err8, err9); err != nil {
+	probeWarning, err10 := meter.Int64ObservableGauge("miaoprobe_probe_warning_info",
+		otelmetric.WithDescription("Normalized current warning classification; always 1 with id, class and reason labels"))
+	if err := errors.Join(err1, err2, err3, err4, err5, err6, err7, err8, err9, err10); err != nil {
 		return nil, fmt.Errorf("exporter: create instruments: %w", err)
 	}
 	m := &Metrics{
@@ -89,10 +93,12 @@ func NewMetrics(meter otelmetric.Meter) (*Metrics, error) {
 		ResultInfo:   resultInfoGauge,
 		ResultExtra:  resultExtra,
 		ProbeFailure: probeFailure,
+		ProbeWarning: probeWarning,
 		results:      make(map[string]resultInfo),
 		failures:     make(map[string]FailureInfo),
+		warnings:     make(map[string]WarningInfo),
 	}
-	if _, err := meter.RegisterCallback(m.observeResults, resultInfoGauge, resultExtra, probeFailure); err != nil {
+	if _, err := meter.RegisterCallback(m.observeResults, resultInfoGauge, resultExtra, probeFailure, probeWarning); err != nil {
 		return nil, fmt.Errorf("exporter: register result observer: %w", err)
 	}
 	return m, nil
@@ -126,6 +132,13 @@ func (m *Metrics) observeResults(_ context.Context, observer otelmetric.Observer
 			attribute.String("reason", failure.Reason),
 		))
 	}
+	for id, warning := range m.warnings {
+		observer.ObserveInt64(m.ProbeWarning, 1, otelmetric.WithAttributes(
+			attribute.String("id", id),
+			attribute.String("class", warning.Class),
+			attribute.String("reason", warning.Reason),
+		))
+	}
 	return nil
 }
 
@@ -154,6 +167,18 @@ func (m *Metrics) clearFailure(id string) {
 	m.resultMu.Lock()
 	defer m.resultMu.Unlock()
 	delete(m.failures, id)
+}
+
+func (m *Metrics) setWarning(id string, warning WarningInfo) {
+	m.resultMu.Lock()
+	defer m.resultMu.Unlock()
+	m.warnings[id] = warning
+}
+
+func (m *Metrics) clearWarning(id string) {
+	m.resultMu.Lock()
+	defer m.resultMu.Unlock()
+	delete(m.warnings, id)
 }
 
 // DefaultConcurrency is the number of scripts polled in parallel when
@@ -298,6 +323,7 @@ func (p *Poller) probeAndRecord(ctx context.Context, sc script.Script, logger *s
 		p.Metrics.clearResult(sc.ID)
 		failure, _ := ClassifyFailure(outcome)
 		p.Metrics.setFailure(sc.ID, failure)
+		p.Metrics.clearWarning(sc.ID)
 		// Report unknown rather than leaving the last good value in place:
 		// a script that starts failing must not keep looking "unlocked".
 		p.Metrics.UnlockStatus.Record(ctx, StatusUnknown, idAttr)
@@ -328,6 +354,11 @@ func (p *Poller) probeAndRecord(ctx context.Context, sc script.Script, logger *s
 	} else {
 		p.Metrics.clearFailure(sc.ID)
 	}
+	if warning, ok := ClassifyWarning(outcome); ok {
+		p.Metrics.setWarning(sc.ID, warning)
+	} else {
+		p.Metrics.clearWarning(sc.ID)
+	}
 }
 
 // recordUnknown marks a script's status as indeterminate, used when probing
@@ -338,6 +369,7 @@ func (p *Poller) recordUnknown(ctx context.Context, sc script.Script) {
 	p.Metrics.UnlockStatus.Record(ctx, StatusUnknown, idAttr)
 	p.Metrics.clearResult(sc.ID)
 	p.Metrics.setFailure(sc.ID, FailureInfo{Class: FailureClassProbe, Reason: FailureReasonScriptError})
+	p.Metrics.clearWarning(sc.ID)
 }
 
 func debugStack() []byte {
