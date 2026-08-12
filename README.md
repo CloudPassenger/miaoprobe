@@ -219,7 +219,7 @@ miaoprobe_unlock_status{instance="hk-edge-01"}
 
 Every OTLP export also carries build metadata as resource attributes:
 
-- `service.version` — the GoReleaser version (`0.1.2`, `nightly-<sha>`, or
+- `service.version` — the GoReleaser version (`0.1.4`, `nightly-<sha>`, or
   `dev` for an ordinary local build).
 - `vcs.ref.head.revision` — the Git commit baked into the binary.
 - `miaoprobe.build.date` — the GoReleaser build timestamp.
