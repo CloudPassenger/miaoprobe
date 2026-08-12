@@ -333,18 +333,29 @@ scrape_configs:
       - targets: ["localhost:9765"]
 ```
 
-A ready-made dashboard and alert rules live in [`dashboards/`](dashboards):
+A ready-made Grafana dashboard and alert rules live in
+[`dashboards/`](dashboards):
 
 | File | What it is |
 |------|------------|
-| `miaoprobe-overview.json` | Grafana dashboard v1: status grid, history timeline, freshness and poll-cycle health |
-| `miaoprobe-overview-v2.json` | Grafana dashboard v2: stacked status trends split into Restricted, WAF blocked, Unavailable, Network and Other failure, plus unlocked-rate segment bargauges |
+| `miaoprobe-overview-v2.json` | Streaming unlock overview with structured status history, Category/Region/Tag filtering, IP quality, build and embedded-script versions, runtime health, poll performance, and execution diagnostics |
 | `miaoprobe-alerts.yaml` | Prometheus/Mimir alert rules |
 | `miaoprobe-alerts-test.yaml` | `promtool` unit tests for those rules |
 
-Import either dashboard via **Dashboards → New → Import → Upload JSON file**,
-then pick your Prometheus data source. Both have `Instance`, `Category` and
-`Script` template variables, so one dashboard covers every probe you run.
+Import `miaoprobe-overview-v2.json` via **Dashboards → New → Import →
+Upload JSON file**, then select the Prometheus data source and MiaoProbe
+instance. The dashboard's Category, Region, and Tag variables support multiple
+values; comma-separated script metadata such as `region="tw,hk"` and
+`tags="stream,video,anime"` is matched as independent values.
+
+The System information section reads MiaoProbe version, source revision, build
+time, and embedded `miaospeed-scripts` version from OpenTelemetry
+`target_info` resource labels. These fields require a build that reports
+`service.version`, `vcs.ref.head.revision`, `miaoprobe.build.date`, and
+`miaoprobe.scripts.embedded.version`; older instances display `Not reported`.
+Execution diagnostics use `miaoprobe_check_errors_total`, which counts script
+execution failures such as exceptions, host API errors, and timeouts rather
+than ordinary business-level unavailable results.
 
 Load the alert rules into a self-hosted Prometheus with `rule_files:`, or
 into Grafana Cloud with
